@@ -101,31 +101,40 @@ class TestGetDirSize:
     """Tests for get_dir_size function."""
 
     @patch("devclean.scanner.subprocess.run")
-    def test_get_dir_size_success(self, mock_run):
+    @patch("pathlib.Path.exists")
+    def test_get_dir_size_success(self, mock_exists, mock_run):
         """Test successful directory size calculation."""
+        # Mock that path exists
+        mock_exists.return_value = True
         # Mock successful du command
         mock_run.return_value = MagicMock(returncode=0, stdout="1024\t/tmp/test\n")
 
-        result = get_dir_size(Path("/tmp/test"))
+        result = get_dir_size(Path("/tmp/test"), use_cache=False)
         assert result == 1024 * 1024  # Should convert from KB to bytes
 
     @patch("devclean.scanner.subprocess.run")
-    def test_get_dir_size_timeout(self, mock_run):
+    @patch("pathlib.Path.exists")
+    def test_get_dir_size_timeout(self, mock_exists, mock_run):
         """Test directory size calculation timeout."""
         from subprocess import TimeoutExpired
 
+        # Mock that path exists
+        mock_exists.return_value = True
         mock_run.side_effect = TimeoutExpired("du", 30)
 
         with pytest.raises(TimeoutError):
-            get_dir_size(Path("/tmp/test"), timeout=30)
+            get_dir_size(Path("/tmp/test"), timeout=30, use_cache=False)
 
     @patch("devclean.scanner.subprocess.run")
-    def test_get_dir_size_parse_error(self, mock_run):
+    @patch("pathlib.Path.exists")
+    def test_get_dir_size_parse_error(self, mock_exists, mock_run):
         """Test directory size calculation parse error."""
+        # Mock that path exists
+        mock_exists.return_value = True
         mock_run.return_value = MagicMock(returncode=0, stdout="invalid output")
 
         with pytest.raises(ScanError):
-            get_dir_size(Path("/tmp/test"))
+            get_dir_size(Path("/tmp/test"), use_cache=False)
 
 
 class TestCheckCommandExists:

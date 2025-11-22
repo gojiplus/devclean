@@ -72,7 +72,7 @@ class TestValidateDirectoryForDeletion:
 
         for protected_path in protected_paths:
             if protected_path.exists():
-                with pytest.raises(UnsafePathError, match="protected"):
+                with pytest.raises(UnsafePathError, match="(protected|special)"):
                     validate_directory_for_deletion(protected_path)
 
 

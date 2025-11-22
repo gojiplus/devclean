@@ -5,7 +5,7 @@ import re
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Any, Dict, Set
+from typing import Any
 
 from .config import CRUFT_PATTERNS
 from .exceptions import DeletionError, PathNotFoundError, UnsafePathError
