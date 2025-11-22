@@ -1,12 +1,12 @@
 [project]
 name = "devclean"
-version = "0.1.0"
+version = "0.2.0"
 description = "AI-powered disk cleanup for developers on macOS"
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}
 authors = [
-    {name = "DevClean Contributors"},
+    {name = "Gaurav Sood"},
 ]
 keywords = ["cleanup", "disk-space", "developer-tools", "macos", "ai", "storage"]
 classifiers = [
@@ -18,6 +18,7 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: System :: Systems Administration",
     "Topic :: Utilities",
 ]
@@ -25,7 +26,7 @@ dependencies = [
     "anthropic>=0.39.0",
     "typer>=0.9.0",
     "rich>=13.0.0",
-    "toml>=0.10.2",
+    "tomlkit>=0.12.0",
 ]
 
 [project.optional-dependencies]
@@ -38,10 +39,10 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/user/devclean"
-Repository = "https://github.com/user/devclean"
-Issues = "https://github.com/user/devclean/issues"
-Documentation = "https://github.com/user/devclean#readme"
+Homepage = "https://github.com/gojiplus/devclean"
+Repository = "https://github.com/gojiplus/devclean"
+Issues = "https://github.com/gojiplus/devclean/issues"
+Documentation = "https://github.com/gojiplus/devclean#readme"
 
 [project.scripts]
 devclean = "devclean.cli:app"

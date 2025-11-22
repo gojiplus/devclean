@@ -1,0 +1,23 @@
+additional_search_paths = []
+exclude_paths = []
+exclude_patterns = []
+
+[scan]
+min_size_mb = 300
+include_venvs = true
+include_node_modules = true
+timeout_seconds = 30
+max_depth = 4
+parallel_workers = 4
+
+[display]
+show_progress = true
+color_output = true
+table_format = "rich"
+size_units = "auto"
+
+[safety]
+require_confirmation = true
+protected_paths = ["~", "~/Documents", "~/Desktop", "~/Downloads", "~/Pictures", "~/Music", "~/Movies", "/", "/System", "/Applications", "/Users/soodoku/workspace"]
+never_delete_patterns = []
+always_safe_patterns = ["**/cache"]

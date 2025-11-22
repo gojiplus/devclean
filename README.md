@@ -1,7 +1,7 @@
 # Cleaner
 
-[![CI](https://github.com/gojiplus/cleaner/workflows/CI/badge.svg)](https://github.com/gojiplus/cleaner/actions)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![CI](https://github.com/gojiplus/devclean/workflows/CI/badge.svg)](https://github.com/gojiplus/devclean/actions)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 AI-powered disk cleanup for developers on macOS.
@@ -12,11 +12,11 @@ Cleaner knows where developer cruft hides — Docker orphans, pre-commit caches,
 
 ```bash
 # Install from GitHub (recommended)
-pip install git+https://github.com/gojiplus/cleaner.git
+pip install git+https://github.com/gojiplus/devclean.git
 
 # Or install locally from source
-git clone https://github.com/gojiplus/cleaner.git
-cd cleaner
+git clone https://github.com/gojiplus/devclean.git
+cd devclean
 pip install -e .
 ```
 
@@ -41,6 +41,65 @@ devclean chat
 
 This starts a conversational session where Claude helps you understand what's taking space and guides you through cleanup decisions.
 
+### Configuration
+
+Customize DevClean's behavior with a configuration file:
+
+```bash
+# Create a configuration file
+devclean config init
+
+# View current settings
+devclean config show
+
+# Add protected directories (never deleted)
+devclean config add-protected ~/important-project
+devclean config add-protected ~/client-work
+
+# Add patterns that are always safe to delete
+devclean config add-safe "**/cache"
+devclean config add-safe "**/.temp"
+
+# List all configured patterns and paths
+devclean config list-patterns
+
+# Edit configuration file directly
+devclean config edit
+
+# Validate configuration
+devclean config validate
+```
+
+Configuration options include:
+- **Scan settings**: minimum size, parallel workers, timeouts
+- **Display preferences**: colors, progress bars, table format  
+- **Safety settings**: protected paths, confirmation requirements
+- **API integration**: Anthropic API key storage
+
+Example `.devclean.toml`:
+```toml
+[scan]
+min_size_mb = 100              # Only show items >= 100MB
+parallel_workers = 4           # Scan with 4 parallel workers
+include_venvs = true          # Scan for Python virtual environments
+
+[safety]
+require_confirmation = true    # Always ask before deletion
+protected_paths = [           # Never delete these paths
+    "~/important-project",
+    "~/client-work"
+]
+always_safe_patterns = [      # These patterns are always safe to delete
+    "**/cache",
+    "**/.temp"
+]
+
+[display]
+show_progress = true          # Show progress bars
+color_output = true           # Use colored output
+table_format = "rich"         # Rich table formatting
+```
+
 ### Direct deletion
 
 ```bash
@@ -49,8 +108,8 @@ devclean clean ~/.cache/pre-commit
 devclean clean ~/.cache/huggingface --force  # skip confirmation
 devclean clean ~/Library/Containers/com.docker.docker --sudo  # use sudo
 
-# Force deletion of protected cache directories
-devclean clean ~/Library/Caches/pypoetry --force  # bypass safety checks
+# Use custom configuration
+devclean clean --config ./project.toml ~/some/path
 ```
 
 ### Bulk cleanup
@@ -112,18 +171,20 @@ The AI will show you exactly what will be deleted and ask for confirmation befor
 
 ## Safety Features
 
-- **Protection checks**: Prevents deletion of system directories and important user folders
-- **Orphan detection**: Identifies leftover data from uninstalled tools (safest to delete)
-- **Force override**: Use `--force` flag to bypass protection for known-safe cache directories
-- **Sudo support**: Handles permission-protected directories when needed
-- **Confirmation required**: All deletions require explicit user approval
+- **Configurable Protection**: Add custom protected paths and safe patterns
+- **Smart Defaults**: Pre-configured protection for system and user directories  
+- **Orphan Detection**: Identifies leftover data from uninstalled tools (safest to delete)
+- **Pattern Matching**: Flexible glob patterns for always-safe and never-delete rules
+- **Force Override**: Bypass protection for confirmed-safe operations
+- **Sudo Support**: Handles permission-protected directories when needed
+- **Confirmation Flow**: Respects user-configured confirmation preferences
 
 ## Development
 
 ```bash
 # Clone and setup
-git clone https://github.com/gojiplus/cleaner.git
-cd cleaner
+git clone https://github.com/gojiplus/devclean.git
+cd devclean
 make dev-setup
 
 # Run tests
@@ -145,19 +206,20 @@ make help
 ## Requirements
 
 - macOS (designed for Mac-specific paths)
-- Python 3.10+
+- Python 3.11+
 - Anthropic API key (for AI features; scan works without it)
 
 ## Features
 
 - ✅ **Smart Detection**: Finds developer cruft in known locations
 - ✅ **AI Guidance**: Claude explains what each item is and whether it's safe to delete
-- ✅ **Safety First**: Multiple layers of protection against deleting important files
-- ✅ **Force Override**: Bypass protections for known-safe cache directories with `--force`
+- ✅ **User Configuration**: Customize behavior, protected paths, and safety rules
+- ✅ **Pattern Matching**: Flexible glob patterns for safe and protected items
+- ✅ **Safety First**: Multiple layers of configurable protection
 - ✅ **Bulk Operations**: Delete multiple items at once with AI guidance
-- ✅ **Orphan Detection**: Identifies leftover data from uninstalled tools
+- ✅ **Orphan Detection**: Identifies leftover data from uninstalled tools  
 - ✅ **Performance**: Parallel scanning and intelligent caching
-- ✅ **Permission Handling**: Automatic sudo support when needed
+- ✅ **Modern Python**: Python 3.11+ with tomllib/tomlkit integration
 - ✅ **Type Safe**: Comprehensive type hints throughout
 - ✅ **Well Tested**: Full test suite with CI/CD
 

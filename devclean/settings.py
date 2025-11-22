@@ -1,11 +1,10 @@
 """Configuration management for DevClean."""
 
 import os
+import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-
-import toml
 
 from .exceptions import ConfigurationError
 
@@ -113,8 +112,8 @@ def load_config(config_path: Path | None = None) -> DevCleanConfig:
         return config
 
     try:
-        with open(config_path, encoding="utf-8") as f:
-            data = toml.load(f)
+        with open(config_path, "rb") as f:
+            data = tomllib.load(f)
 
         # Update config with values from file
         if "scan" in data:
@@ -215,9 +214,12 @@ def save_config(config: DevCleanConfig, config_path: Path | None = None) -> None
             # Only save if not already in environment
             pass
 
+        # Note: tomllib only supports reading TOML, so we'll need tomlkit for writing
+        import tomlkit
+
         config_path.parent.mkdir(parents=True, exist_ok=True)
         with open(config_path, "w", encoding="utf-8") as f:
-            toml.dump(data, f)
+            f.write(tomlkit.dumps(data))
 
     except Exception as e:
         raise ConfigurationError(f"Failed to save config to {config_path}: {e}") from e
@@ -234,7 +236,7 @@ def create_sample_config(config_path: Path | None = None) -> None:
         config_path = Path.home() / ".devclean.toml"
 
     sample_content = """# DevClean Configuration File
-# See https://github.com/user/devclean for documentation
+# See https://github.com/gojiplus/devclean for documentation
 
 [scan]
 # Minimum size in MB for items to be reported
