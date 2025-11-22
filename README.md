@@ -60,7 +60,7 @@ The AI assistant supports bulk operations for cleaning multiple items at once:
 ```bash
 # In AI chat mode, you can say:
 # "delete all safe items" - deletes caches, orphaned data, etc.
-# "clean up everything except virtual environments" 
+# "clean up everything except virtual environments"
 # "nuke all node_modules directories"
 ```
 
@@ -106,7 +106,7 @@ The AI will show you exactly what will be deleted and ask for confirmation befor
 ## How it works
 
 1. **Scan**: Cleaner scans known cruft locations and searches for venvs/node_modules
-2. **Detect orphans**: Checks if tools are still installed (e.g., Docker data without Docker) 
+2. **Detect orphans**: Checks if tools are still installed (e.g., Docker data without Docker)
 3. **AI guidance**: Claude explains what each item is and whether it's safe to delete
 4. **Confirm & clean**: Nothing is deleted without your explicit confirmation
 

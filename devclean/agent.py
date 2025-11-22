@@ -1,7 +1,8 @@
 """Claude-powered agent for interactive disk cleanup."""
 
 import os
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List, Optional
+
 from anthropic import Anthropic
 from rich.console import Console
 from rich.markdown import Markdown
@@ -9,7 +10,6 @@ from rich.panel import Panel
 from rich.prompt import Prompt
 
 from .tools import TOOL_DEFINITIONS, execute_tool
-
 
 SYSTEM_PROMPT = """\
 You are DevClean, a friendly and knowledgeable assistant that helps macOS developers clean up disk space.
@@ -97,30 +97,30 @@ Start by greeting the user briefly and offering to scan their disk.
 
 class DevCleanAgent:
     """Interactive agent for disk cleanup."""
-    
-    def __init__(self, api_key: Optional[str] = None) -> None:
+
+    def __init__(self, api_key: str | None = None) -> None:
         self.client = Anthropic(api_key=api_key)
         self.console = Console()
-        self.messages: List[Dict[str, Any]] = []
+        self.messages: list[dict[str, Any]] = []
         self.model = "claude-sonnet-4-20250514"
-    
+
     def _call_claude(self) -> str:
         """Make a request to Claude and handle tool calls."""
-        
+
         response = self.client.messages.create(
             model=self.model,
             max_tokens=4096,
             system=SYSTEM_PROMPT,
-            tools=TOOL_DEFINITIONS,
-            messages=self.messages,
+            tools=TOOL_DEFINITIONS,  # type: ignore
+            messages=self.messages,  # type: ignore
         )
-        
+
         # Process response, handling tool use
         while response.stop_reason == "tool_use":
             # Find tool use blocks
             assistant_content = response.content
             self.messages.append({"role": "assistant", "content": assistant_content})
-            
+
             # Execute each tool call
             tool_results = []
             for block in assistant_content:
@@ -128,87 +128,93 @@ class DevCleanAgent:
                     tool_name = block.name
                     tool_input = block.input
                     tool_id = block.id
-                    
+
                     # Show user what's happening
                     self.console.print(f"[dim]→ Running {tool_name}...[/dim]")
-                    
+
                     # Execute the tool
                     result = execute_tool(tool_name, tool_input)
-                    
-                    tool_results.append({
-                        "type": "tool_result",
-                        "tool_use_id": tool_id,
-                        "content": result,
-                    })
-            
+
+                    tool_results.append(
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": tool_id,
+                            "content": result,
+                        }
+                    )
+
             # Send tool results back
             self.messages.append({"role": "user", "content": tool_results})
-            
+
             # Get next response
             response = self.client.messages.create(
                 model=self.model,
                 max_tokens=4096,
                 system=SYSTEM_PROMPT,
-                tools=TOOL_DEFINITIONS,
-                messages=self.messages,
+                tools=TOOL_DEFINITIONS,  # type: ignore
+                messages=self.messages,  # type: ignore
             )
-        
+
         # Extract final text response
         final_text = ""
         for block in response.content:
             if hasattr(block, "text"):
                 final_text += block.text
-        
+
         self.messages.append({"role": "assistant", "content": response.content})
-        
+
         return final_text
-    
+
     def chat(self, user_message: str) -> str:
         """Send a message and get a response."""
         self.messages.append({"role": "user", "content": user_message})
         return self._call_claude()
-    
+
     def run_interactive(self) -> None:
         """Run interactive chat loop."""
-        
-        self.console.print(Panel(
-            "[bold blue]DevClean[/bold blue] - AI-powered disk cleanup for developers\n"
-            "[dim]Type 'quit' or 'exit' to stop, 'help' for commands[/dim]",
-            border_style="blue",
-        ))
+
+        self.console.print(
+            Panel(
+                "[bold blue]DevClean[/bold blue] - AI-powered disk cleanup for developers\n"
+                "[dim]Type 'quit' or 'exit' to stop, 'help' for commands[/dim]",
+                border_style="blue",
+            )
+        )
         self.console.print()
-        
+
         # Get initial greeting/offer to scan
         response = self.chat("Hi! I'd like to clean up some disk space.")
         self.console.print(Markdown(response))
         self.console.print()
-        
+
         while True:
             try:
                 user_input = Prompt.ask("[bold green]You[/bold green]")
             except (KeyboardInterrupt, EOFError):
                 self.console.print("\n[dim]Goodbye![/dim]")
                 break
-            
+
             if not user_input.strip():
                 continue
-            
+
             if user_input.lower() in ("quit", "exit", "q"):
                 self.console.print("[dim]Goodbye![/dim]")
                 break
-            
+
             if user_input.lower() == "help":
-                self.console.print(Panel(
-                    "Commands:\n"
-                    "  scan      - Scan for cruft\n"
-                    "  delete X  - Delete a specific path\n"
-                    "  quit      - Exit\n\n"
-                    "Or just chat naturally!",
-                    title="Help",
-                    border_style="dim",
-                ))
+                self.console.print(
+                    Panel(
+                        "Commands:\n"
+                        "  scan      - Scan for cruft\n"
+                        "  delete X  - Delete a specific path\n"
+                        "  quit      - Exit\n\n"
+                        "Or just chat naturally!",
+                        title="Help",
+                        border_style="dim",
+                    )
+                )
                 continue
-            
+
             try:
                 response = self.chat(user_input)
                 self.console.print()
@@ -218,7 +224,7 @@ class DevCleanAgent:
                 self.console.print(f"[red]Error: {e}[/red]")
 
 
-def run_agent(api_key: Optional[str] = None) -> None:
+def run_agent(api_key: str | None = None) -> None:
     """Entry point for running the agent."""
     agent = DevCleanAgent(api_key=api_key)
     agent.run_interactive()

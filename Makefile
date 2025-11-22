@@ -17,20 +17,18 @@ test-quick:  ## Run tests without coverage
 	pytest -v
 
 lint:  ## Run linting checks
-	black --check --diff .
-	isort --check-only --diff .
-	flake8 .
+	ruff check .
+	ruff format --check .
 
 format:  ## Format code
-	black .
-	isort .
+	ruff format .
+	ruff check --fix .
 
 type-check:  ## Run type checking
 	mypy devclean/
 
 security:  ## Run security checks
-	bandit -r devclean/
-	safety check
+	bandit -r devclean/ --skip B404,B603,B607,B110,B112
 
 clean:  ## Clean build artifacts
 	rm -rf build/

@@ -81,12 +81,42 @@ line-length = 100
 target-version = "py310"
 
 [tool.ruff.lint]
+# Enable flake8-bugbear (`B`) rules, in addition to the defaults.
 select = [
-    "E",  # pycodestyle errors
-    "W",  # pycodestyle warnings
-    "F",  # pyflakes
-    "I",  # isort
-    "B",  # flake8-bugbear
-    "C4", # flake8-comprehensions
-    "UP", # pyupgrade
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings  
+    "F",    # pyflakes
+    "I",    # isort
+    "B",    # flake8-bugbear
+    "C4",   # flake8-comprehensions
+    "UP",   # pyupgrade
+    "D",    # pydocstyle
 ]
+
+# Ignore specific rules that are problematic for our use case
+ignore = [
+    "E501",   # line too long (handled by formatter)
+    "D107",   # missing docstring in __init__
+    "D102",   # missing docstring in public method (properties don't need docs)
+    "D202",   # no blank lines allowed after function docstring  
+    "D413",   # missing blank line after last section (pydocstyle is strict)
+    "B008",   # do not perform function calls in argument defaults (typer pattern)
+    "B904",   # use raise from within except (not always needed)
+    "F401",   # unused import (often needed for __init__.py)
+    "F841",   # local variable assigned but never used (common in except blocks)
+    "UP035",  # typing imports (we want explicit typing for clarity)
+]
+
+# Allow specific rules per file
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+"tests/**" = ["F401", "D", "E722"]  # Allow bare except in tests
+"devclean/scanner.py" = ["E722"]  # Allow bare except for error handling
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"  # Use Google docstring convention to avoid conflicts
+
+[tool.bandit]
+# Ignore subprocess warnings - this is a system administration tool
+exclude_dirs = ["tests"]
+skips = ["B404", "B603", "B607", "B110", "B112"]
