@@ -1,0 +1,11 @@
+{
+  "name": "gojiplus-devclean",
+  "owner": { "name": "Gaurav Sood" },
+  "plugins": [
+    {
+      "name": "devclean",
+      "source": "./",
+      "description": "Evidence-driven disk cleanup for macOS developers"
+    }
+  ]
+}

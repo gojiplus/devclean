@@ -25,7 +25,6 @@ repos:
       - id: mypy
         additional_dependencies:
           - types-toml
-          - anthropic
           - typer
           - rich
 

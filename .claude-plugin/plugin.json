@@ -1,0 +1,6 @@
+{
+  "name": "devclean",
+  "description": "Evidence-driven disk cleanup for macOS developers — classifies cruft by how much proof backs deleting it, and supplies the confirmation flow",
+  "version": "0.3.0",
+  "author": { "name": "Gaurav Sood" }
+}

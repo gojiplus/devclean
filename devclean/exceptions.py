@@ -13,8 +13,13 @@ class ScanError(DevCleanError):
     pass
 
 
-class PermissionError(DevCleanError):
-    """Error due to insufficient permissions."""
+class DevCleanPermissionError(DevCleanError):
+    """Error due to insufficient permissions.
+
+    Deliberately not named ``PermissionError``: shadowing the builtin made
+    ``except PermissionError`` ambiguous, and the two were caught inconsistently
+    across modules.
+    """
 
     pass
 
@@ -52,7 +57,11 @@ class DeletionError(DevCleanError):
         self.error_code = error_code
 
 
-class TimeoutError(DevCleanError):
-    """Error when an operation times out."""
+class ScanTimeoutError(DevCleanError):
+    """Error when an operation times out.
+
+    Deliberately not named ``TimeoutError`` — see
+    :class:`DevCleanPermissionError`.
+    """
 
     pass

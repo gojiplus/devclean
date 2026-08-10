@@ -1,258 +1,286 @@
-"""CLI interface for devclean."""
+"""Command-line interface for DevClean."""
 
-import os
-import sys
+from __future__ import annotations
+
+import json
+import shutil
+import subprocess
 from pathlib import Path
-from typing import Optional
 
 import typer
 from rich.console import Console
-from rich.panel import Panel
 from rich.table import Table
 
+from .candidates import BULK_DELETABLE, Candidate, Tier
 from .config_cli import config_app
-from .settings import DevCleanConfig, get_api_key_from_config_or_env, load_config
+from .exceptions import DevCleanError, UnsafePathError
+from .safety import assert_safe_to_delete
+from .scanner import ScanResult, scan_all
+from .settings import DevCleanConfig, load_config
+from .validation import sanitize_path
 
 app = typer.Typer(
     name="devclean",
-    help="AI-powered disk cleanup for developers on macOS",
-    no_args_is_help=False,
+    help="Find and clean developer cruft on macOS.",
+    add_completion=False,
+    no_args_is_help=True,
 )
-
-# Add config subcommands
+console = Console()
 app.add_typer(config_app)
 
-console = Console()
+TIER_STYLE = {
+    Tier.AUTO: "green",
+    Tier.VERIFIED: "green",
+    Tier.PROBE: "yellow",
+    Tier.INSPECT: "red",
+}
 
-# Global config instance
-_config: DevCleanConfig | None = None
+
+def _human(size_bytes: int) -> str:
+    gb = size_bytes / (1024**3)
+    if gb >= 1:
+        return f"{gb:.1f} GB"
+    return f"{size_bytes / (1024**2):.0f} MB"
 
 
-def get_config(config_path: Path | None = None) -> DevCleanConfig:
-    """Get the global configuration, loading it if necessary."""
-    global _config
-    if _config is None:
-        _config = load_config(config_path)
-    return _config
+def _run_scan(min_size: int | None, no_venvs: bool, no_node: bool, no_project: bool) -> ScanResult:
+    config = load_config()
+    return scan_all(
+        min_size_mb=min_size if min_size is not None else config.scan.min_size_mb,
+        include_venvs=not no_venvs,
+        include_node_modules=not no_node,
+        include_project_cruft=not no_project,
+    )
+
+
+def _render(result: ScanResult) -> None:
+    if not result.candidates:
+        console.print("[green]Nothing found above the size floor.[/green]")
+        return
+
+    table = Table(title="Cleanup candidates")
+    table.add_column("Size", justify="right", style="cyan")
+    table.add_column("Tier")
+    table.add_column("Category", style="magenta")
+    table.add_column("What", overflow="fold")
+    table.add_column("Comes back via", overflow="fold", style="dim")
+
+    for candidate in result.candidates:
+        table.add_row(
+            candidate.size_human,
+            f"[{TIER_STYLE[candidate.tier]}]{candidate.tier.value}[/]",
+            candidate.category,
+            str(candidate.path),
+            candidate.recovery,
+        )
+
+    console.print(table)
+
+    console.print(
+        f"\n[bold]{_human(result.reclaimable_bytes)}[/bold] in "
+        f"{len(result.bulk_deletable)} candidates can be removed without review."
+    )
+
+    needs_review = result.needs_review
+    if needs_review:
+        console.print(
+            f"[yellow]{_human(sum(c.size_bytes for c in needs_review))}[/yellow] in "
+            f"{len(needs_review)} candidates needs a look first:"
+        )
+        for candidate in needs_review:
+            console.print(f"  [bold]{candidate.path}[/bold] ({candidate.size_human})")
+            for concern in candidate.concerns:
+                console.print(f"    [red]·[/red] {concern}")
+
+    for error in result.errors:
+        console.print(f"[dim]scan warning: {error}[/dim]")
 
 
 @app.command()
 def scan(
-    min_size: int | None = typer.Option(
-        None, "--min-size", "-m", help="Minimum size in MB to report"
-    ),
-    no_venvs: bool = typer.Option(
-        False, "--no-venvs", help="Skip scanning for virtual environments"
-    ),
-    no_node: bool = typer.Option(False, "--no-node", help="Skip scanning for node_modules"),
-    config_file: Path | None = typer.Option(
-        None, "--config", "-c", help="Path to configuration file"
-    ),
+    min_size: int = typer.Option(None, "--min-size", "-m", help="Global size floor in MB"),
+    no_venvs: bool = typer.Option(False, "--no-venvs", help="Skip virtualenv scan"),
+    no_node: bool = typer.Option(False, "--no-node", help="Skip node_modules scan"),
+    no_project: bool = typer.Option(False, "--no-project", help="Skip project-local scan"),
+    as_json: bool = typer.Option(False, "--json", help="Emit JSON instead of a table"),
 ) -> None:
-    """Quick scan to show what's taking space (no AI, no deletion)."""
-    from .scanner import scan_all
+    """Scan for cruft. Read-only — never deletes anything."""
+    result = _run_scan(min_size, no_venvs, no_node, no_project)
 
-    # Load configuration
-    config = get_config(config_file)
-
-    # Use config values with CLI overrides
-    effective_min_size = min_size if min_size is not None else config.scan.min_size_mb
-    effective_include_venvs = not no_venvs and config.scan.include_venvs
-    effective_include_node_modules = not no_node and config.scan.include_node_modules
-
-    console.print(f"[dim]Scanning (min size: {effective_min_size}MB)...[/dim]")
-
-    result = scan_all(
-        include_venvs=effective_include_venvs,
-        include_node_modules=effective_include_node_modules,
-        min_size_mb=effective_min_size,
-        max_workers=config.scan.parallel_workers,
-    )
-
-    if not result.all_items:
-        console.print("[green]No significant cruft found![/green]")
+    if as_json:
+        typer.echo(
+            json.dumps(
+                {
+                    "total_bytes": result.total_bytes,
+                    "reclaimable_bytes": result.reclaimable_bytes,
+                    "candidates": [c.to_dict() for c in result.candidates],
+                    "errors": result.errors,
+                },
+                indent=2,
+            )
+        )
         return
 
-    # Display results in a table
-    table = Table(title="Developer Cruft Found", show_lines=True)
-    table.add_column("Size", style="cyan", justify="right")
-    table.add_column("Category", style="magenta")
-    table.add_column("Description")
-    table.add_column("Status", style="dim")
-    table.add_column("Path", style="dim")
-
-    for item in result.items:
-        status = ""
-        if item.tool_installed is False:
-            status = "[red]ORPHANED[/red]"
-        elif item.tool_installed is True:
-            status = "[green]in use[/green]"
-
-        safe = "[green]safe[/green]" if item.safe else "[yellow]caution[/yellow]"
-
-        table.add_row(
-            item.size_human,
-            item.category,
-            item.description,
-            f"{status} {safe}",
-            str(item.path),
-        )
-
-    if result.venvs:
-        for item in result.venvs:
-            table.add_row(
-                item.size_human,
-                "venv",
-                item.description,
-                "[green]safe[/green]",
-                str(item.path),
-            )
-
-    if result.node_modules:
-        for item in result.node_modules:
-            table.add_row(
-                item.size_human,
-                "node_modules",
-                item.description,
-                "[green]safe[/green]",
-                str(item.path),
-            )
-
-    console.print(table)
-    console.print()
-    console.print(
-        Panel(
-            f"[bold]Total: {result.total_gb:.1f} GB[/bold] across {len(result.all_items)} items\n\n"
-            f"Run [cyan]devclean chat[/cyan] for interactive AI-guided cleanup",
-            border_style="blue",
-        )
-    )
+    _render(result)
 
 
 @app.command()
-def chat(
-    api_key: str | None = typer.Option(
-        None,
-        "--api-key",
-        "-k",
-        envvar="ANTHROPIC_API_KEY",
-        help="Anthropic API key (or set ANTHROPIC_API_KEY env var)",
-    ),
-    config_file: Path | None = typer.Option(
-        None, "--config", "-c", help="Path to configuration file"
-    ),
+def plan(
+    min_size: int = typer.Option(None, "--min-size", "-m", help="Global size floor in MB"),
+    no_venvs: bool = typer.Option(False, "--no-venvs", help="Skip virtualenv scan"),
+    no_node: bool = typer.Option(False, "--no-node", help="Skip node_modules scan"),
+    no_project: bool = typer.Option(False, "--no-project", help="Skip project-local scan"),
 ) -> None:
-    """Interactive AI-powered cleanup session."""
-    from .agent import run_agent
+    """Show what a cleanup would do, grouped by tier. Deletes nothing."""
+    result = _run_scan(min_size, no_venvs, no_node, no_project)
 
-    # Load configuration
-    config = get_config(config_file)
+    for tier in (Tier.AUTO, Tier.VERIFIED, Tier.PROBE, Tier.INSPECT):
+        group = result.by_tier(tier)
+        if not group:
+            continue
 
-    # Try to get API key from CLI, env, or config
-    effective_api_key = api_key or get_api_key_from_config_or_env(config)
+        total = _human(sum(c.size_bytes for c in group))
+        deletable = "bulk-deletable" if tier in BULK_DELETABLE else "needs your decision"
+        console.print(f"\n[bold][{TIER_STYLE[tier]}]{tier.value}[/] — {total} ({deletable})[/bold]")
 
-    if not effective_api_key:
-        console.print("[red]Error: No API key provided.[/red]")
-        console.print("Options:")
-        console.print("  1. Set ANTHROPIC_API_KEY environment variable")
-        console.print("  2. Use --api-key flag")
-        console.print("  3. Add 'anthropic_api_key' to your .devclean.toml config")
-        console.print("  4. Run [cyan]devclean config init[/cyan] to create a config file")
-        raise typer.Exit(1)
+        for candidate in group:
+            suffix = f" ×{candidate.member_count}" if candidate.member_count > 1 else ""
+            console.print(f"  {candidate.size_human:>9}  {candidate.path}{suffix}")
+            console.print(f"             [dim]back via: {candidate.recovery}[/dim]")
+            for concern in candidate.concerns:
+                console.print(f"             [red]concern:[/red] {concern}")
 
-    run_agent(api_key=effective_api_key)
+    console.print(
+        "\nRun [bold]devclean clean --tier auto[/bold] to act on the safest group, "
+        "or [bold]devclean clean PATH[/bold] for anything listed as needing a decision."
+    )
+
+
+def _delete(path: Path, use_sudo: bool = False) -> None:
+    if use_sudo:
+        subprocess.run(["sudo", "rm", "-rf", str(path)], check=True, timeout=300)
+    else:
+        shutil.rmtree(path)
 
 
 @app.command()
 def clean(
-    path: str = typer.Argument(..., help="Path to delete"),
+    path: str = typer.Argument(None, help="A single path to delete"),
+    tier: str = typer.Option(None, "--tier", help="Delete a whole tier: auto or verified"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show what would happen, delete nothing"),
     force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation"),
-    sudo: bool = typer.Option(False, "--sudo", "-s", help="Use sudo for deletion"),
-    config_file: Path | None = typer.Option(
-        None, "--config", "-c", help="Path to configuration file"
-    ),
+    use_sudo: bool = typer.Option(False, "--sudo", "-s", help="Use sudo to delete"),
+    min_size: int = typer.Option(None, "--min-size", "-m", help="Global size floor in MB"),
 ) -> None:
-    """Delete a specific path (use with caution)."""
-    import shutil
-    import subprocess
+    """Delete a single path, or a whole tier with --tier.
 
-    from .validation import validate_directory_for_deletion
-
-    # Load configuration
-    config = get_config(config_file)
-
-    target = Path(path).expanduser()
-
-    if not target.exists():
-        console.print(f"[red]Path does not exist: {target}[/red]")
+    Only ``auto`` and ``verified`` may be deleted in bulk. Anything a probe
+    objected to must be named explicitly, so a directory whose contents were
+    never understood cannot be swept up by a batch command.
+    """
+    if not path and not tier:
+        console.print("[red]Give a PATH or --tier.[/red]")
         raise typer.Exit(1)
 
-    # Use configuration-based safety checks
+    if path and tier:
+        console.print("[red]Give a PATH or --tier, not both.[/red]")
+        raise typer.Exit(1)
+
+    config = load_config()
+
+    if tier:
+        _clean_tier(tier, dry_run, force, use_sudo, min_size, config)
+        return
+
+    target = sanitize_path(path)
     try:
-        validate_directory_for_deletion(target, config.safety.protected_paths)
-    except Exception as e:
-        console.print(f"[red]Safety check failed: {e}[/red]")
+        assert_safe_to_delete(target, config.safety.protected_paths, require_depth=False)
+    except DevCleanError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+
+    if dry_run:
+        console.print(f"[yellow]would delete[/yellow] {target}")
+        return
+
+    if not force and not typer.confirm(f"Delete {target}?"):
+        console.print("Cancelled.")
+        raise typer.Exit(0)
+
+    try:
+        _delete(target, use_sudo)
+    except (OSError, subprocess.SubprocessError) as exc:
+        console.print(f"[red]Failed to delete {target}: {exc}[/red]")
+        raise typer.Exit(1) from exc
+    console.print(f"[green]Deleted[/green] {target}")
+
+
+def _clean_tier(
+    tier_name: str,
+    dry_run: bool,
+    force: bool,
+    use_sudo: bool,
+    min_size: int,
+    config: DevCleanConfig,
+) -> None:
+    try:
+        tier = Tier(tier_name.lower())
+    except ValueError as exc:
+        console.print(f"[red]Unknown tier '{tier_name}'. Use auto or verified.[/red]")
+        raise typer.Exit(1) from exc
+
+    if tier not in BULK_DELETABLE:
         console.print(
-            "[dim]Configure protected paths with: devclean config add-protected <path>[/dim]"
+            f"[red]Tier '{tier.value}' cannot be deleted in bulk.[/red] "
+            "Those candidates were never content-verified, or a probe objected. "
+            "Delete them one at a time with `devclean clean PATH`."
         )
         raise typer.Exit(1)
 
-    # Get size
-    from .scanner import get_dir_size
+    result = _run_scan(min_size, False, False, False)
+    targets: list[Candidate] = [c for c in result.by_tier(tier) if c.bulk_deletable]
 
-    size = get_dir_size(target)
-    size_str = f"{size / (1024**3):.2f} GB" if size else "unknown size"
+    if not targets:
+        console.print(f"Nothing in tier '{tier.value}'.")
+        return
 
-    # Honor configuration for confirmation requirements
-    require_confirmation = config.safety.require_confirmation and not force
-    if require_confirmation:
-        confirm = typer.confirm(f"Delete {target} ({size_str})?")
-        if not confirm:
-            console.print("[dim]Cancelled[/dim]")
-            raise typer.Exit(0)
+    total = _human(sum(c.size_bytes for c in targets))
+    console.print(f"[bold]{len(targets)} candidates, {total}[/bold]")
+    for candidate in targets:
+        console.print(f"  {candidate.size_human:>9}  {candidate.path}")
 
-    try:
-        if sudo:
-            result = subprocess.run(
-                ["sudo", "rm", "-rf", str(target)],
-                capture_output=True,
-                text=True,
-            )
-            if result.returncode != 0:
-                console.print(f"[red]Error: {result.stderr}[/red]")
-                raise typer.Exit(1)
-        else:
-            shutil.rmtree(target)
+    if dry_run:
+        console.print("\n[yellow]--dry-run: nothing was deleted.[/yellow]")
+        return
 
-        console.print(f"[green]Deleted {target} ({size_str} freed)[/green]")
+    if not force and not typer.confirm(f"\nDelete all {len(targets)} of these?"):
+        console.print("Cancelled.")
+        raise typer.Exit(0)
 
-    except PermissionError:
-        console.print("[red]Permission denied. Try with --sudo[/red]")
-        raise typer.Exit(1)
+    freed = 0
+    for candidate in targets:
+        # Roll-ups carry a category name rather than a real path; they are
+        # reported for visibility and cleaned by their own tooling.
+        if not candidate.path.is_absolute():
+            console.print(f"[dim]skipping roll-up {candidate.path} — clean these per project[/dim]")
+            continue
+        try:
+            assert_safe_to_delete(candidate.path, config.safety.protected_paths)
+            _delete(candidate.path, use_sudo)
+        except (UnsafePathError, OSError, subprocess.SubprocessError) as exc:
+            console.print(f"[red]skipped {candidate.path}: {exc}[/red]")
+            continue
+        freed += candidate.size_bytes
+        console.print(f"[green]deleted[/green] {candidate.path}")
+
+    console.print(f"\n[bold green]Freed {_human(freed)}[/bold green]")
 
 
 @app.callback(invoke_without_command=True)
 def main(ctx: typer.Context) -> None:
-    """DevClean - AI-powered disk cleanup for developers."""
+    """Find and clean developer cruft on macOS."""
     if ctx.invoked_subcommand is None:
-        # Default to chat if API key is available, otherwise scan
-        api_key = os.environ.get("ANTHROPIC_API_KEY")
-        if api_key:
-            from .agent import run_agent
-
-            run_agent(api_key=api_key)
-        else:
-            console.print(
-                Panel(
-                    "[bold blue]DevClean[/bold blue] - AI-powered disk cleanup\n\n"
-                    "Commands:\n"
-                    "  [cyan]devclean scan[/cyan]  - Quick scan (no AI)\n"
-                    "  [cyan]devclean chat[/cyan]  - Interactive AI cleanup\n"
-                    "  [cyan]devclean clean PATH[/cyan] - Delete a path\n\n"
-                    "[dim]Set ANTHROPIC_API_KEY for AI features[/dim]",
-                    border_style="blue",
-                )
-            )
+        console.print(ctx.get_help())
 
 
 if __name__ == "__main__":

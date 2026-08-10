@@ -13,52 +13,41 @@ jobs:
   test:
     runs-on: macos-latest
     strategy:
+      fail-fast: false
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v5
+    # uv resolves the PEP 735 [dependency-groups] table, which `pip install
+    # -e ".[dev]"` cannot see, and handles its own caching.
+    - name: Set up uv
+      uses: astral-sh/setup-uv@v7
       with:
+        enable-cache: true
         python-version: ${{ matrix.python-version }}
 
-    - name: Cache dependencies
-      uses: actions/cache@v4
-      with:
-        path: |
-          ~/.cache/pip
-          ~/.cache/pypoetry
-        key: ${{ runner.os }}-pip-${{ matrix.python-version }}-${{ hashFiles('**/pyproject.toml') }}
-        restore-keys: |
-          ${{ runner.os }}-pip-${{ matrix.python-version }}-
-          ${{ runner.os }}-pip-
-
     - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -e ".[dev]"
+      run: uv sync --all-extras
 
     - name: Run linting
       run: |
-        ruff check .
-        ruff format --check .
+        uv run ruff check .
+        uv run ruff format --check .
 
     - name: Run type checking
-      run: |
-        mypy devclean/
+      run: uv run mypy devclean/
 
     - name: Run tests
-      run: |
-        pytest -v --cov=devclean --cov-report=xml
+      run: uv run pytest -v --cov=devclean --cov-report=xml
 
     - name: Upload coverage to Codecov
       if: matrix.python-version == '3.11'
-      uses: codecov/codecov-action@v4
+      uses: codecov/codecov-action@v5
       with:
-        file: ./coverage.xml
+        files: ./coverage.xml
         flags: unittests
         name: codecov-umbrella
 
@@ -66,51 +55,44 @@ jobs:
     runs-on: macos-latest
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
-    - name: Set up Python
-      uses: actions/setup-python@v5
+    - name: Set up uv
+      uses: astral-sh/setup-uv@v7
       with:
+        enable-cache: true
         python-version: ${{ env.PYTHON_VERSION }}
 
     - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -e ".[dev]" bandit
+      run: uv sync --all-extras
 
     - name: Run security checks
-      run: |
-        bandit -c pyproject.toml -r devclean/
+      run: uvx bandit -c pyproject.toml -r devclean/
 
   build:
     runs-on: macos-latest
     needs: [test, security-scan]
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
-    - name: Set up Python
-      uses: actions/setup-python@v5
+    - name: Set up uv
+      uses: astral-sh/setup-uv@v7
       with:
+        enable-cache: true
         python-version: ${{ env.PYTHON_VERSION }}
 
-    - name: Install build dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install build twine
-
     - name: Build package
-      run: |
-        python -m build
+      run: uv build
 
     - name: Verify package
-      run: |
-        twine check dist/*
+      run: uvx twine check dist/*
 
     - name: Test installation
       run: |
-        pip install dist/*.whl
+        uv tool install dist/*.whl
         devclean --help
+        devclean scan --help
 
     - name: Upload build artifacts
       uses: actions/upload-artifact@v4
