@@ -1,227 +1,131 @@
-# Cleaner
+# devclean
 
 [![CI](https://github.com/gojiplus/devclean/workflows/CI/badge.svg)](https://github.com/gojiplus/devclean/actions)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-AI-powered disk cleanup for developers on macOS.
+Disk cleanup for macOS developers that tells you *why* something is safe to delete.
 
-Cleaner knows where developer cruft hides — Docker orphans, pre-commit caches, torch models, virtual environments, node_modules — and helps you clean it up interactively with AI guidance.
+Most cleanup tools match directory names. Name matching is how you lose data: a
+directory called `dist/` next to a `pyproject.toml` is usually build output and
+occasionally the only copy of a dataset. `devclean` reads the contents, and
+sorts every candidate by how much evidence actually backs deleting it.
 
-## Installation
-
-```bash
-# Install from GitHub (recommended)
-pip install git+https://github.com/gojiplus/devclean.git
-
-# Or install locally from source
-git clone https://github.com/gojiplus/devclean.git
-cd devclean
-pip install -e .
-```
-
-## Usage
-
-### Quick scan (no AI, no API key needed)
+## Install
 
 ```bash
-devclean scan
+uv tool install git+https://github.com/gojiplus/devclean.git
 ```
 
-Shows all developer cruft on your system with sizes, categories, and whether items are orphaned (tool uninstalled but data remains).
-
-### Interactive AI-guided cleanup
+Or run it without installing:
 
 ```bash
-export ANTHROPIC_API_KEY=your-key-here
-devclean
-# or
-devclean chat
+uvx --from git+https://github.com/gojiplus/devclean.git devclean scan
 ```
 
-This starts a conversational session where Claude helps you understand what's taking space and guides you through cleanup decisions.
-
-### Configuration
-
-Customize DevClean's behavior with a configuration file:
+## Use
 
 ```bash
-# Create a configuration file
-devclean config init
-
-# View current settings
-devclean config show
-
-# Add protected directories (never deleted)
-devclean config add-protected ~/important-project
-devclean config add-protected ~/client-work
-
-# Add patterns that are always safe to delete
-devclean config add-safe "**/cache"
-devclean config add-safe "**/.temp"
-
-# List all configured patterns and paths
-devclean config list-patterns
-
-# Edit configuration file directly
-devclean config edit
-
-# Validate configuration
-devclean config validate
+devclean scan          # read-only inventory, never deletes
+devclean plan          # the same candidates grouped by tier
+devclean clean --tier auto --dry-run
+devclean clean --tier auto
 ```
 
-Configuration options include:
-- **Scan settings**: minimum size, parallel workers, timeouts
-- **Display preferences**: colors, progress bars, table format  
-- **Safety settings**: protected paths, confirmation requirements
-- **API integration**: Anthropic API key storage
+`scan --json` emits the same data for scripting.
 
-Example `.devclean.toml`:
+## Tiers
+
+Every candidate carries a tier, the evidence behind it, and the command that
+brings it back.
+
+| Tier | Evidence | Bulk-deletable |
+|---|---|---|
+| `auto` | The owning tool documents a purge command (`uv cache clean`, `npm cache clean`) | yes |
+| `verified` | A marker file proves it is what its name says — `pyvenv.cfg`, `package.json` | yes |
+| `probe` | Name matched a known category; contents passed a shape check | no |
+| `inspect` | A probe objected, and says why | no |
+
+`devclean clean --tier` acts only on `auto` and `verified`. Anything else has to
+be named explicitly, so a directory whose contents were never understood cannot
+be swept up by a batch command.
+
+## What the probes catch
+
+A real example. This `dist/` sits next to a `pyproject.toml` and is gitignored,
+so nothing in git holds a copy:
+
+```
+$ devclean plan
+inspect — 3.1 GB (needs your decision)
+     3.1 GB  ~/Documents/GitHub/pai/dist
+             back via: Rebuilt by `python -m build`
+             concern: contains a subdirectory (_stage/) — dist/ should be flat
+             concern: DATAVERSE_UPLOAD.md is not a wheel or sdist
+             concern: pai_2022-2023_html.tar.gz is a tarball whose name carries
+                      no release version — it may be data rather than a build artifact
+             concern: gitignored — no copy in version control
+```
+
+Those archives were a dataset staged for publication. Every structural signal
+said "build artifact". Only the contents disagreed.
+
+The same probes clear genuine build output without complaint — a `dist/` holding
+`naampy-0.9.0-py3-none-any.whl` and a `.gitignore` reports no concerns.
+
+## Claude Code plugin
+
+The repo ships a skill that drives the CLI through a confirmation flow:
+measure, show the list, resolve every concern, confirm per group, then verify
+one restore actually works before calling it done.
+
+```
+/plugin marketplace add gojiplus/devclean
+/plugin install devclean
+```
+
+## What it looks for
+
+Per-user caches for uv, pip, npm, pnpm, yarn, Poetry, conda, Homebrew,
+pre-commit, Cargo, Go, Gradle, Maven, Playwright, Selenium, JetBrains, Xcode and
+the iOS simulator; PyTorch, HuggingFace and Whisper model caches; virtualenvs
+and `node_modules` under your project directories; and project-local caches
+(`__pycache__`, `.pytest_cache`, `.mypy_cache`, `.ruff_cache`, `.tox`) rolled up
+per category rather than listed one directory at a time.
+
+Model caches and anything a probe flags stay out of the bulk-deletable set.
+
+## Configuration
+
+Optional, at `./.devclean.toml` or `~/.devclean.toml`:
+
 ```toml
 [scan]
-min_size_mb = 100              # Only show items >= 100MB
-parallel_workers = 4           # Scan with 4 parallel workers
-include_venvs = true          # Scan for Python virtual environments
+min_size_mb = 100          # global floor; individual patterns may override it
 
 [safety]
-require_confirmation = true    # Always ask before deletion
-protected_paths = [           # Never delete these paths
-    "~/important-project",
-    "~/client-work"
-]
-always_safe_patterns = [      # These patterns are always safe to delete
-    "**/cache",
-    "**/.temp"
-]
-
-[display]
-show_progress = true          # Show progress bars
-color_output = true           # Use colored output
-table_format = "rich"         # Rich table formatting
+protected_paths = ["~/important-project"]
 ```
 
-### Direct deletion
+`devclean config init` writes a starter file; `devclean config show` prints the
+active settings.
 
-```bash
-# Delete specific directories
-devclean clean ~/.cache/pre-commit
-devclean clean ~/.cache/huggingface --force  # skip confirmation
-devclean clean ~/Library/Containers/com.docker.docker --sudo  # use sudo
+## Safety
 
-# Use custom configuration
-devclean clean --config ./project.toml ~/some/path
-```
+One guard, in `devclean/safety.py`, used by every deletion path. It refuses your
+home directory, its top-level folders, system roots, anything directly inside
+them, and any parent of your home directory. Configured `protected_paths` are
+honoured everywhere.
 
-### Bulk cleanup
-
-The AI assistant supports bulk operations for cleaning multiple items at once:
-
-```bash
-# In AI chat mode, you can say:
-# "delete all safe items" - deletes caches, orphaned data, etc.
-# "clean up everything except virtual environments"
-# "nuke all node_modules directories"
-```
-
-The AI will show you exactly what will be deleted and ask for confirmation before proceeding.
-
-## What it finds
-
-**Python**
-- `~/.cache/pre-commit` — pre-commit hook environments
-- `~/.cache/pip` — pip download cache
-- `~/.cache/uv` — uv package cache
-- `~/.cache/pypoetry` — Poetry cache
-- Virtual environments in your projects
-
-**ML/AI**
-- `~/.cache/torch` — PyTorch models
-- `~/.cache/huggingface` — HuggingFace models/datasets
-- `~/.cache/whisper` — Whisper models
-
-**Node**
-- `~/.cache/yarn`, `~/Library/Caches/Yarn`
-- `~/.npm`
-- `node_modules` in your projects
-
-**Docker**
-- `~/Library/Containers/com.docker.docker` — Docker Desktop data (often orphaned!)
-
-**Xcode**
-- `~/Library/Developer/Xcode/DerivedData`
-- `~/Library/Developer/Xcode/Archives`
-- iOS DeviceSupport files
-
-**Testing**
-- Playwright browser binaries
-- Selenium webdriver cache
-
-**Other**
-- Homebrew cache
-- Gradle/Maven caches
-- Cargo registry
-- Go module cache
-
-## How it works
-
-1. **Scan**: Cleaner scans known cruft locations and searches for venvs/node_modules
-2. **Detect orphans**: Checks if tools are still installed (e.g., Docker data without Docker)
-3. **AI guidance**: Claude explains what each item is and whether it's safe to delete
-4. **Confirm & clean**: Nothing is deleted without your explicit confirmation
-
-## Safety Features
-
-- **Configurable Protection**: Add custom protected paths and safe patterns
-- **Smart Defaults**: Pre-configured protection for system and user directories  
-- **Orphan Detection**: Identifies leftover data from uninstalled tools (safest to delete)
-- **Pattern Matching**: Flexible glob patterns for always-safe and never-delete rules
-- **Force Override**: Bypass protection for confirmed-safe operations
-- **Sudo Support**: Handles permission-protected directories when needed
-- **Confirmation Flow**: Respects user-configured confirmation preferences
+Deleting a nested path such as `~/Documents/GitHub/project/.venv` is allowed —
+that is the point — while `~/Documents` itself is not.
 
 ## Development
 
 ```bash
-# Clone and setup
-git clone https://github.com/gojiplus/devclean.git
-cd devclean
-make dev-setup
-
-# Run tests
-make test
-
-# Run all checks (linting, type checking, security, tests)
-make check-all
-
-# Format code
-make format
-
-# Local CI testing with Docker
-make ci-docker
-
-# See all available commands
-make help
+uv sync --all-extras
+make check-all      # ruff, mypy, bandit, pytest
 ```
-
-## Requirements
-
-- macOS (designed for Mac-specific paths)
-- Python 3.11+
-- Anthropic API key (for AI features; scan works without it)
-
-## Features
-
-- ✅ **Smart Detection**: Finds developer cruft in known locations
-- ✅ **AI Guidance**: Claude explains what each item is and whether it's safe to delete
-- ✅ **User Configuration**: Customize behavior, protected paths, and safety rules
-- ✅ **Pattern Matching**: Flexible glob patterns for safe and protected items
-- ✅ **Safety First**: Multiple layers of configurable protection
-- ✅ **Bulk Operations**: Delete multiple items at once with AI guidance
-- ✅ **Orphan Detection**: Identifies leftover data from uninstalled tools  
-- ✅ **Performance**: Parallel scanning and intelligent caching
-- ✅ **Modern Python**: Python 3.11+ with tomllib/tomlkit integration
-- ✅ **Type Safe**: Comprehensive type hints throughout
-- ✅ **Well Tested**: Full test suite with CI/CD
 
 ## License
 

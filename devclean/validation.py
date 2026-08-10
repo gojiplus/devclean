@@ -1,11 +1,13 @@
 """Input validation and path sanitization for DevClean."""
 
+from __future__ import annotations
+
 import os
 import re
 from pathlib import Path
-from typing import Optional
 
 from .exceptions import PathNotFoundError, UnsafePathError
+from .safety import assert_safe_to_delete
 
 
 def sanitize_path(path_str: str) -> Path:
@@ -84,6 +86,9 @@ def validate_directory_for_scanning(path: Path) -> None:
 def validate_directory_for_deletion(path: Path, protected_paths: list[str] | None = None) -> None:
     """Validate that a directory is safe to delete.
 
+    Thin wrapper over :func:`devclean.safety.assert_safe_to_delete`, which is
+    the single source of truth for deletion safety.
+
     Args:
         path: Directory path to validate
         protected_paths: Additional protected paths beyond defaults
@@ -93,75 +98,7 @@ def validate_directory_for_deletion(path: Path, protected_paths: list[str] | Non
         PathNotFoundError: If directory doesn't exist
 
     """
-    if not path.exists():
-        raise PathNotFoundError(f"Path does not exist: {path}")
-
-    # Default protected paths
-    home = Path.home()
-    default_protected = [
-        home,
-        home / "Documents",
-        home / "Desktop",
-        home / "Downloads",
-        home / "Pictures",
-        home / "Music",
-        home / "Movies",
-        Path("/"),
-        Path("/System"),
-        Path("/Applications"),
-        Path("/usr"),
-        Path("/bin"),
-        Path("/sbin"),
-        Path("/lib"),
-        Path("/etc"),
-    ]
-
-    # Add any additional protected paths
-    if protected_paths:
-        for pp in protected_paths:
-            try:
-                default_protected.append(Path(pp).expanduser().resolve())
-            except Exception:
-                continue  # Skip invalid paths
-
-    # Check if path is protected
-    for protected_path in default_protected:
-        try:
-            if path == protected_path:
-                raise UnsafePathError(f"Cannot delete protected path: {path}")
-
-            # Check if path is under a protected directory
-            if path.is_relative_to(protected_path):
-                # Allow deletion of subdirectories of home that are not special
-                if protected_path == home:
-                    # Check if it's a special subdirectory
-                    special_subdirs = {
-                        "Documents",
-                        "Desktop",
-                        "Downloads",
-                        "Pictures",
-                        "Music",
-                        "Movies",
-                    }
-                    if path.name in special_subdirs or any(
-                        part in special_subdirs for part in path.parts
-                    ):
-                        raise UnsafePathError(f"Cannot delete special directory: {path}")
-                else:
-                    raise UnsafePathError(
-                        f"Cannot delete path under protected directory {protected_path}: {path}"
-                    )
-
-        except ValueError:
-            # is_relative_to can raise ValueError on some platforms/path combinations
-            continue
-
-    # Check that we're not deleting something that contains the home directory
-    try:
-        if home.is_relative_to(path):
-            raise UnsafePathError(f"Cannot delete path that contains home directory: {path}")
-    except ValueError:
-        pass
+    assert_safe_to_delete(path, protected_paths, require_depth=False)
 
 
 def validate_size_parameter(size_mb: int) -> None:

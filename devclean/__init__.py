@@ -1,3 +1,3 @@
-"""DevClean - AI-powered disk cleanup for developers on macOS."""
+"""DevClean - evidence-driven disk cleanup for developers on macOS."""
 
-__version__ = "0.1.0"
+__version__ = "0.3.0"

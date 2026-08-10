@@ -1,13 +1,13 @@
-"""Tests for scanner module."""
+"""Tests for the scanner."""
 
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from devclean.exceptions import ScanError, TimeoutError
+from devclean.candidates import Candidate, Tier
+from devclean.exceptions import ScanError, ScanTimeoutError
 from devclean.scanner import (
-    CruftItem,
     ScanResult,
     check_command_exists,
     get_dir_size,
@@ -15,121 +15,114 @@ from devclean.scanner import (
 )
 
 
-class TestCruftItem:
-    """Tests for CruftItem dataclass."""
+def make_candidate(**overrides: object) -> Candidate:
+    defaults: dict[str, object] = {
+        "path": Path("/tmp/x"),
+        "size_bytes": 100 * 1024 * 1024,
+        "category": "python",
+        "description": "test",
+        "tier": Tier.AUTO,
+        "recovery": "refetched",
+    }
+    defaults.update(overrides)
+    return Candidate(**defaults)  # type: ignore[arg-type]
 
-    def test_cruft_item_creation(self):
-        """Test creating a CruftItem."""
-        item = CruftItem(
-            path=Path("/tmp/test"),
-            size_bytes=1048576,  # 1MB
-            category="test",
-            description="Test item",
-            safe=True,
-        )
 
-        assert item.path == Path("/tmp/test")
-        assert item.size_bytes == 1048576
-        assert item.size_mb == 1.0
-        assert item.size_gb == pytest.approx(0.001, abs=0.001)
-        assert item.size_human == "1 MB"
-        assert item.category == "test"
-        assert item.safe is True
-        assert item.tool_installed is None
-
-    def test_size_human_gb(self):
-        """Test human-readable size formatting for GB."""
-        item = CruftItem(
-            path=Path("/tmp/test"),
-            size_bytes=2 * 1024**3,  # 2GB
-            category="test",
-            description="Test item",
-        )
-
-        assert item.size_human == "2.0 GB"
+class TestCandidate:
+    """Tests for the Candidate dataclass."""
 
     def test_size_human_mb(self):
-        """Test human-readable size formatting for MB."""
-        item = CruftItem(
-            path=Path("/tmp/test"),
-            size_bytes=500 * 1024**2,  # 500MB
-            category="test",
-            description="Test item",
-        )
+        assert make_candidate(size_bytes=200 * 1024 * 1024).size_human == "200 MB"
 
-        assert item.size_human == "500 MB"
+    def test_size_human_gb(self):
+        assert make_candidate(size_bytes=2 * 1024**3).size_human == "2.0 GB"
+
+    def test_auto_is_bulk_deletable(self):
+        assert make_candidate(tier=Tier.AUTO).bulk_deletable is True
+
+    def test_probe_is_not_bulk_deletable(self):
+        """PROBE means nothing objected, not that the contents were understood."""
+        assert make_candidate(tier=Tier.PROBE).bulk_deletable is False
+
+    def test_concerns_block_bulk_deletion_even_at_high_tier(self):
+        candidate = make_candidate(tier=Tier.VERIFIED)
+        candidate.concerns.append("gitignored")
+        assert candidate.bulk_deletable is False
+
+    def test_to_dict_round_trips_the_fields_the_skill_reads(self):
+        data = make_candidate().to_dict()
+        for key in ("path", "size_bytes", "tier", "recovery", "evidence", "concerns"):
+            assert key in data
 
 
 class TestScanResult:
-    """Tests for ScanResult dataclass."""
+    """Tests for the ScanResult container."""
 
-    def test_scan_result_creation(self):
-        """Test creating a ScanResult."""
+    def test_empty(self):
         result = ScanResult()
-
-        assert result.items == []
-        assert result.venvs == []
-        assert result.node_modules == []
-        assert result.errors == []
-        assert result.all_items == []
+        assert result.candidates == []
         assert result.total_bytes == 0
-        assert result.total_gb == 0.0
 
-    def test_scan_result_with_items(self):
-        """Test ScanResult with items."""
-        item1 = CruftItem(
-            path=Path("/tmp/test1"),
-            size_bytes=1024**3,  # 1GB
-            category="test",
-            description="Test item 1",
+    def test_totals_and_partitioning(self):
+        safe = make_candidate(path=Path("/tmp/a"), size_bytes=1024**3, tier=Tier.AUTO)
+        risky = make_candidate(path=Path("/tmp/b"), size_bytes=2 * 1024**3, tier=Tier.INSPECT)
+        result = ScanResult(candidates=[safe, risky])
+
+        assert result.total_bytes == 3 * 1024**3
+        assert result.reclaimable_bytes == 1024**3
+        assert result.bulk_deletable == [safe]
+        assert result.needs_review == [risky]
+
+    def test_by_category_groups(self):
+        result = ScanResult(
+            candidates=[
+                make_candidate(category="python"),
+                make_candidate(category="node"),
+                make_candidate(category="python"),
+            ]
         )
-        item2 = CruftItem(
-            path=Path("/tmp/test2"),
-            size_bytes=512 * 1024**2,  # 512MB
-            category="test",
-            description="Test item 2",
+        grouped = result.by_category()
+        assert len(grouped["python"]) == 2
+        assert len(grouped["node"]) == 1
+
+    def test_sort_is_descending_by_size(self):
+        result = ScanResult(
+            candidates=[
+                make_candidate(size_bytes=1),
+                make_candidate(size_bytes=100),
+                make_candidate(size_bytes=50),
+            ]
         )
-
-        result = ScanResult(items=[item1], venvs=[item2])
-
-        assert len(result.all_items) == 2
-        assert result.total_bytes == 1024**3 + 512 * 1024**2
-        assert result.total_gb == pytest.approx(1.5, abs=0.01)
+        result.sort()
+        assert [c.size_bytes for c in result.candidates] == [100, 50, 1]
 
 
 class TestGetDirSize:
-    """Tests for get_dir_size function."""
+    """Tests for get_dir_size. All pass use_cache=False so the on-disk cache
+    cannot make results depend on prior runs."""
 
     @patch("devclean.scanner.subprocess.run")
     @patch("pathlib.Path.exists")
-    def test_get_dir_size_success(self, mock_exists, mock_run):
-        """Test successful directory size calculation."""
-        # Mock that path exists
+    def test_success(self, mock_exists, mock_run):
         mock_exists.return_value = True
-        # Mock successful du command
         mock_run.return_value = MagicMock(returncode=0, stdout="1024\t/tmp/test\n")
 
-        result = get_dir_size(Path("/tmp/test"), use_cache=False)
-        assert result == 1024 * 1024  # Should convert from KB to bytes
+        assert get_dir_size(Path("/tmp/test"), use_cache=False) == 1024 * 1024
 
     @patch("devclean.scanner.subprocess.run")
     @patch("pathlib.Path.exists")
-    def test_get_dir_size_timeout(self, mock_exists, mock_run):
-        """Test directory size calculation timeout."""
+    def test_timeout(self, mock_exists, mock_run):
         from subprocess import TimeoutExpired
 
-        # Mock that path exists
         mock_exists.return_value = True
         mock_run.side_effect = TimeoutExpired("du", 30)
 
-        with pytest.raises(TimeoutError):
+        with pytest.raises(ScanTimeoutError):
             get_dir_size(Path("/tmp/test"), timeout=30, use_cache=False)
 
     @patch("devclean.scanner.subprocess.run")
     @patch("pathlib.Path.exists")
-    def test_get_dir_size_parse_error(self, mock_exists, mock_run):
-        """Test directory size calculation parse error."""
-        # Mock that path exists
+    def test_parse_error(self, mock_exists, mock_run):
         mock_exists.return_value = True
         mock_run.return_value = MagicMock(returncode=0, stdout="invalid output")
 
@@ -138,81 +131,111 @@ class TestGetDirSize:
 
 
 class TestCheckCommandExists:
-    """Tests for check_command_exists function."""
-
     @patch("devclean.scanner.subprocess.run")
-    def test_command_exists(self, mock_run):
-        """Test checking for existing command."""
+    def test_exists(self, mock_run):
         mock_run.return_value = MagicMock(returncode=0)
-
-        result = check_command_exists("python")
-        assert result is True
+        assert check_command_exists("python") is True
 
     @patch("devclean.scanner.subprocess.run")
-    def test_command_not_exists(self, mock_run):
-        """Test checking for non-existing command."""
+    def test_missing(self, mock_run):
         mock_run.return_value = MagicMock(returncode=1)
-
-        result = check_command_exists("nonexistent-command")
-        assert result is False
+        assert check_command_exists("nonexistent-command") is False
 
     @patch("devclean.scanner.subprocess.run")
-    def test_command_check_error(self, mock_run):
-        """Test command check with exception."""
-        mock_run.side_effect = Exception("Test error")
+    def test_error_is_not_fatal(self, mock_run):
+        mock_run.side_effect = OSError("boom")
+        assert check_command_exists("python") is False
 
-        result = check_command_exists("python")
-        assert result is False
-
-    def test_command_with_args(self):
-        """Test command with version argument."""
-        # This should extract just 'python' from 'python --version'
-        result = check_command_exists("python --version")
-        # Result depends on whether python is actually installed
-        assert isinstance(result, bool)
+    def test_strips_version_argument(self):
+        assert isinstance(check_command_exists("python --version"), bool)
 
 
 class TestScanKnownCruft:
-    """Tests for scan_known_cruft function."""
-
     @patch("devclean.scanner.get_dir_size")
     @patch("devclean.scanner.check_command_exists")
-    def test_scan_known_cruft_empty(self, mock_check_cmd, mock_get_size):
-        """Test scanning with no cruft found."""
-        # Mock that paths don't exist
+    def test_nothing_found(self, mock_check_cmd, mock_get_size):
         with patch("pathlib.Path.exists", return_value=False):
-            result = scan_known_cruft(Path.home(), min_size_mb=100)
-            assert result == []
+            assert scan_known_cruft(Path.home(), min_size_mb=100) == []
 
     @patch("devclean.scanner.get_dir_size")
     @patch("devclean.scanner.check_command_exists")
-    def test_scan_known_cruft_found(self, mock_check_cmd, mock_get_size):
-        """Test scanning with cruft found."""
-        mock_get_size.return_value = 200 * 1024 * 1024  # 200MB
+    def test_found(self, mock_check_cmd, mock_get_size):
+        mock_get_size.return_value = 200 * 1024 * 1024
         mock_check_cmd.return_value = True
 
-        # Mock that only one path exists (pre-commit cache)
-        def mock_exists(self):
-            return ".cache/pre-commit" in str(self)
+        def only_precommit(self):
+            return str(self).endswith(".cache/pre-commit")
 
-        with patch("pathlib.Path.exists", mock_exists):
+        with patch("pathlib.Path.exists", only_precommit):
             result = scan_known_cruft(Path.home(), min_size_mb=100)
-            assert len(result) == 1
-            assert result[0].category == "python"
-            assert result[0].description == "Pre-commit hook environments"
-            assert result[0].size_bytes == 200 * 1024 * 1024
-            assert result[0].tool_installed is True
+
+        assert len(result) == 1
+        assert result[0].category == "python"
+        assert result[0].size_bytes == 200 * 1024 * 1024
 
     @patch("devclean.scanner.get_dir_size")
     @patch("devclean.scanner.check_command_exists")
-    def test_scan_known_cruft_too_small(self, mock_check_cmd, mock_get_size):
-        """Test scanning with cruft that's too small."""
-        mock_get_size.return_value = 50 * 1024 * 1024  # 50MB (below 100MB threshold)
+    def test_below_floor_is_skipped(self, mock_check_cmd, mock_get_size):
+        mock_get_size.return_value = 50 * 1024 * 1024
         mock_check_cmd.return_value = True
 
-        def mock_exists(self):
-            return ".cache/pre-commit" in str(self)
+        def only_precommit(self):
+            return str(self).endswith(".cache/pre-commit")
 
-        with patch("pathlib.Path.exists", mock_exists):
+        with patch("pathlib.Path.exists", only_precommit):
+            assert scan_known_cruft(Path.home(), min_size_mb=100) == []
+
+    @patch("devclean.scanner.get_dir_size")
+    @patch("devclean.scanner.check_command_exists")
+    def test_purge_command_earns_auto_tier(self, mock_check_cmd, mock_get_size):
+        """A tool that documents how to clear its own cache is the evidence."""
+        mock_get_size.return_value = 500 * 1024 * 1024
+        mock_check_cmd.return_value = True
+
+        def only_uv(self):
+            return str(self).endswith(".cache/uv")
+
+        with patch("pathlib.Path.exists", only_uv):
             result = scan_known_cruft(Path.home(), min_size_mb=100)
-            assert result == []
+
+        assert len(result) == 1
+        assert result[0].tier is Tier.AUTO
+        assert any("uv cache clean" in e for e in result[0].evidence)
+
+    @patch("devclean.scanner.get_dir_size")
+    @patch("devclean.scanner.check_command_exists")
+    def test_per_pattern_floor_can_lower_the_global_one(self, mock_check_cmd, mock_get_size):
+        """The old code took max(pattern, global), so a pattern floor could only
+        ever raise the bar and small-but-numerous categories stayed invisible."""
+        from devclean.config import CruftPattern
+        from devclean.scanner import _scan_pattern
+
+        mock_get_size.return_value = 20 * 1024 * 1024  # 20 MB
+        pattern = CruftPattern(
+            "{home}/.cache/tiny",
+            "python",
+            "small but worth reporting",
+            min_size_mb=10,
+        )
+
+        with patch("pathlib.Path.exists", return_value=True):
+            candidate = _scan_pattern(pattern, Path.home(), min_size_mb=300)
+
+        assert candidate is not None
+        assert candidate.size_bytes == 20 * 1024 * 1024
+
+    @patch("devclean.scanner.get_dir_size")
+    @patch("devclean.scanner.check_command_exists")
+    def test_unsafe_pattern_lands_in_inspect(self, mock_check_cmd, mock_get_size):
+        from devclean.config import CruftPattern
+        from devclean.scanner import _scan_pattern
+
+        mock_get_size.return_value = 500 * 1024 * 1024
+        pattern = CruftPattern("{home}/x", "docker", "running state", safe=False)
+
+        with patch("pathlib.Path.exists", return_value=True):
+            candidate = _scan_pattern(pattern, Path.home(), min_size_mb=100)
+
+        assert candidate is not None
+        assert candidate.tier is Tier.INSPECT
+        assert candidate.bulk_deletable is False
