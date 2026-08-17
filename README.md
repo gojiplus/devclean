@@ -91,7 +91,11 @@ pre-commit, Cargo, Go, Gradle, Maven, Playwright, Selenium, JetBrains, Xcode and
 the iOS simulator; PyTorch, HuggingFace and Whisper model caches; virtualenvs
 and `node_modules` under your project directories; and project-local caches
 (`__pycache__`, `.pytest_cache`, `.mypy_cache`, `.ruff_cache`, `.tox`) rolled up
-per category rather than listed one directory at a time.
+per category rather than listed one directory at a time. It also checks direct
+children of `/private/tmp`, `/var/tmp`, and the current user's macOS temporary
+directory. Only directories owned by the current user are reported, and these
+always stay in `inspect`: being in temporary storage is not proof that a
+directory is unused or reproducible.
 
 Model caches and anything a probe flags stay out of the bulk-deletable set.
 
@@ -113,9 +117,10 @@ active settings.
 ## Safety
 
 One guard, in `devclean/safety.py`, used by every deletion path. It refuses your
-home directory, its top-level folders, system roots, anything directly inside
-them, and any parent of your home directory. Configured `protected_paths` are
-honoured everywhere.
+home directory, its top-level folders, system roots, temporary roots, anything
+directly inside a system root, and any parent of your home directory.
+Configured `protected_paths` are honoured everywhere. Outside your home,
+deletion is limited to children of the recognized temporary roots.
 
 Deleting a nested path such as `~/Documents/GitHub/project/.venv` is allowed —
 that is the point — while `~/Documents` itself is not.

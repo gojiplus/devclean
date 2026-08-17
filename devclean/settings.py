@@ -16,6 +16,7 @@ class ScanSettings:
     min_size_mb: int = 100
     include_venvs: bool = True
     include_node_modules: bool = True
+    include_temporary_dirs: bool = True
     timeout_seconds: int = 30
     max_depth: int = 4
     parallel_workers: int = 4
@@ -124,6 +125,9 @@ def load_config(config_path: Path | None = None) -> DevCleanConfig:
                 include_node_modules=scan_data.get(
                     "include_node_modules", config.scan.include_node_modules
                 ),
+                include_temporary_dirs=scan_data.get(
+                    "include_temporary_dirs", config.scan.include_temporary_dirs
+                ),
                 timeout_seconds=scan_data.get("timeout_seconds", config.scan.timeout_seconds),
                 max_depth=scan_data.get("max_depth", config.scan.max_depth),
                 parallel_workers=scan_data.get("parallel_workers", config.scan.parallel_workers),
@@ -188,6 +192,7 @@ def save_config(config: DevCleanConfig, config_path: Path | None = None) -> None
                 "min_size_mb": config.scan.min_size_mb,
                 "include_venvs": config.scan.include_venvs,
                 "include_node_modules": config.scan.include_node_modules,
+                "include_temporary_dirs": config.scan.include_temporary_dirs,
                 "timeout_seconds": config.scan.timeout_seconds,
                 "max_depth": config.scan.max_depth,
                 "parallel_workers": config.scan.parallel_workers,
@@ -247,6 +252,9 @@ include_venvs = true
 
 # Whether to scan for node_modules directories
 include_node_modules = true
+
+# Whether to scan macOS temporary directories
+include_temporary_dirs = true
 
 # Timeout in seconds for directory size calculations
 timeout_seconds = 30

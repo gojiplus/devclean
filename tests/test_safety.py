@@ -41,6 +41,42 @@ class TestAssertSafeToDelete:
         with pytest.raises(UnsafePathError):
             assert_safe_to_delete(Path("/"))
 
+    def test_shared_temp_root_is_refused(self):
+        with pytest.raises(UnsafePathError, match="protected"):
+            assert_safe_to_delete(Path("/private/tmp"))
+
+    def test_user_owned_child_of_temp_root_is_allowed(self, tmp_path, monkeypatch):
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        temp_root = tmp_path / "system-temp"
+        candidate = temp_root / "build-output"
+        candidate.mkdir(parents=True)
+        monkeypatch.setattr(Path, "home", classmethod(lambda cls: fake_home))
+        monkeypatch.setattr("devclean.safety.temporary_roots", lambda: [temp_root])
+
+        with pytest.raises(UnsafePathError, match="protected"):
+            assert_safe_to_delete(temp_root)
+        assert_safe_to_delete(candidate)
+
+    def test_other_paths_outside_home_are_refused(self, tmp_path, monkeypatch):
+        fake_home = tmp_path / "home"
+        outside = tmp_path / "outside" / "candidate"
+        fake_home.mkdir()
+        outside.mkdir(parents=True)
+        monkeypatch.setattr(Path, "home", classmethod(lambda cls: fake_home))
+        monkeypatch.setattr("devclean.safety.temporary_roots", lambda: [tmp_path / "elsewhere"])
+
+        with pytest.raises(UnsafePathError, match="outside your home"):
+            assert_safe_to_delete(outside)
+
+    def test_mounted_filesystem_is_refused(self, tmp_path, monkeypatch):
+        candidate = tmp_path / "mounted-volume"
+        candidate.mkdir()
+        monkeypatch.setattr(Path, "is_mount", lambda self: self == candidate)
+
+        with pytest.raises(UnsafePathError, match="mounted filesystem"):
+            assert_safe_to_delete(candidate)
+
     def test_documents_itself_is_refused(self):
         documents = Path.home() / "Documents"
         if not documents.exists():

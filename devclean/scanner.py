@@ -7,6 +7,7 @@ disposable from a directory that merely has a suggestive name.
 
 from __future__ import annotations
 
+import os
 import subprocess
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -22,6 +23,7 @@ from .config import (
     CruftPattern,
 )
 from .exceptions import ScanError, ScanTimeoutError
+from .locations import temporary_roots
 from .probes import probe_dist_dir, probe_node_modules, probe_venv, recovery_evidence
 
 
@@ -405,11 +407,99 @@ def find_probed_project_dirs(home: Path, min_size_mb: int = 50) -> list[Candidat
     return candidates
 
 
+def _get_dir_sizes(paths: list[Path], timeout: int = 60) -> dict[Path, int]:
+    """Measure several directories in one bounded ``du`` invocation."""
+    if not paths:
+        return {}
+    try:
+        result = subprocess.run(
+            ["du", "-sk", *(str(path) for path in paths)],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return {}
+
+    sizes: dict[Path, int] = {}
+    for line in result.stdout.splitlines():
+        try:
+            size_kb, raw_path = line.split(maxsplit=1)
+            sizes[Path(raw_path)] = int(size_kb) * 1024
+        except (ValueError, IndexError):
+            continue
+    return sizes
+
+
+def find_temporary_dirs(
+    min_size_mb: int = 100,
+    roots: list[Path] | None = None,
+    owner_uid: int | None = None,
+) -> list[Candidate]:
+    """Find large, user-owned directories directly inside temporary roots.
+
+    A temporary location is useful evidence for where disk space went, but it
+    does not prove that the contents are unused or reproducible.  These
+    candidates therefore always require an explicit per-path decision.
+    """
+    candidates: list[Candidate] = []
+    uid = os.getuid() if owner_uid is None else owner_uid
+    floor = min_size_mb * 1024 * 1024
+
+    for root in roots if roots is not None else temporary_roots():
+        try:
+            children = sorted(root.iterdir())
+        except OSError:
+            continue
+
+        owned_dirs: list[Path] = []
+        for path in children:
+            try:
+                if (
+                    path.is_symlink()
+                    or not path.is_dir()
+                    or path.is_mount()
+                    or path.stat().st_uid != uid
+                ):
+                    continue
+            except OSError:
+                continue
+            owned_dirs.append(path)
+
+        sizes = _get_dir_sizes(owned_dirs)
+        for path in owned_dirs:
+            size = sizes.get(path)
+            if size is None or size < floor:
+                continue
+
+            candidates.append(
+                Candidate(
+                    path=path,
+                    size_bytes=size,
+                    category="temporary",
+                    description=f"user-owned directory in {root}",
+                    tier=Tier.INSPECT,
+                    recovery="No automatic recovery; inspect before deleting",
+                    evidence=[
+                        f"direct child of temporary root {root}",
+                        "owned by the current user",
+                    ],
+                    concerns=[
+                        "temporary location alone does not prove it is unused or reproducible; "
+                        "confirm no process needs it and it is not the only copy"
+                    ],
+                )
+            )
+
+    return candidates
+
+
 def scan_all(
     home: Path | None = None,
     include_venvs: bool = True,
     include_node_modules: bool = True,
     include_project_cruft: bool = True,
+    include_temporary_dirs: bool = True,
     min_size_mb: int = 100,
 ) -> ScanResult:
     """Run a full scan for all cruft types.
@@ -419,6 +509,7 @@ def scan_all(
         include_venvs: Whether to scan for Python virtual environments
         include_node_modules: Whether to scan for node_modules directories
         include_project_cruft: Whether to scan project-local caches and build output
+        include_temporary_dirs: Whether to scan macOS temporary roots
         min_size_mb: Global size floor, overridable per pattern
 
     Returns:
@@ -442,6 +533,8 @@ def scan_all(
     if include_project_cruft:
         stages.append(("project caches", lambda: find_project_cruft(home)))
         stages.append(("build output", lambda: find_probed_project_dirs(home)))
+    if include_temporary_dirs:
+        stages.append(("temporary directories", lambda: find_temporary_dirs(min_size_mb)))
 
     try:
         for label, stage in stages:
