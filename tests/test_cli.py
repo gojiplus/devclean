@@ -145,3 +145,12 @@ class TestScanIsReadOnly:
 
         assert result.exit_code == 0
         mock_delete.assert_not_called()
+
+    @patch("devclean.cli._run_scan")
+    def test_temp_scan_can_be_disabled(self, mock_scan):
+        mock_scan.return_value = ScanResult()
+
+        result = runner.invoke(app, ["scan", "--no-temp"])
+
+        assert result.exit_code == 0
+        mock_scan.assert_called_once_with(None, False, False, False, True)

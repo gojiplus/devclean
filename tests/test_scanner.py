@@ -9,7 +9,9 @@ from devclean.candidates import Candidate, Tier
 from devclean.exceptions import ScanError, ScanTimeoutError
 from devclean.scanner import (
     ScanResult,
+    _get_dir_sizes,
     check_command_exists,
+    find_temporary_dirs,
     get_dir_size,
     scan_known_cruft,
 )
@@ -130,6 +132,34 @@ class TestGetDirSize:
             get_dir_size(Path("/tmp/test"), use_cache=False)
 
 
+class TestGetDirSizes:
+    @patch("devclean.scanner.subprocess.run")
+    def test_measures_multiple_paths_in_one_call(self, mock_run):
+        mock_run.return_value = MagicMock(
+            stdout="1024\t/private/tmp/one\n2048\t/private/tmp/path with spaces\n"
+        )
+        paths = [Path("/private/tmp/one"), Path("/private/tmp/path with spaces")]
+
+        assert _get_dir_sizes(paths) == {
+            paths[0]: 1024 * 1024,
+            paths[1]: 2048 * 1024,
+        }
+        mock_run.assert_called_once_with(
+            ["du", "-sk", *(str(path) for path in paths)],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+
+    @patch("devclean.scanner.subprocess.run")
+    def test_timeout_skips_the_root(self, mock_run):
+        from subprocess import TimeoutExpired
+
+        mock_run.side_effect = TimeoutExpired("du", 60)
+
+        assert _get_dir_sizes([Path("/private/tmp/slow")]) == {}
+
+
 class TestCheckCommandExists:
     @patch("devclean.scanner.subprocess.run")
     def test_exists(self, mock_run):
@@ -239,3 +269,43 @@ class TestScanKnownCruft:
         assert candidate is not None
         assert candidate.tier is Tier.INSPECT
         assert candidate.bulk_deletable is False
+
+
+class TestFindTemporaryDirs:
+    @patch("devclean.scanner._get_dir_sizes")
+    def test_reports_only_direct_user_owned_directories_as_inspect(self, mock_sizes, tmp_path):
+        candidate_dir = tmp_path / "large-build"
+        candidate_dir.mkdir()
+        (candidate_dir / "nested").mkdir()
+        (tmp_path / "plain-file").touch()
+        mock_sizes.return_value = {candidate_dir: 200 * 1024 * 1024}
+
+        result = find_temporary_dirs(
+            min_size_mb=100,
+            roots=[tmp_path],
+            owner_uid=candidate_dir.stat().st_uid,
+        )
+
+        assert [item.path for item in result] == [candidate_dir]
+        assert result[0].tier is Tier.INSPECT
+        assert result[0].bulk_deletable is False
+        assert "current user" in result[0].evidence[1]
+        assert result[0].concerns
+
+    @patch("devclean.scanner._get_dir_sizes")
+    def test_skips_other_owners_and_items_below_floor(self, mock_sizes, tmp_path):
+        candidate_dir = tmp_path / "small-build"
+        candidate_dir.mkdir()
+        mock_sizes.return_value = {candidate_dir: 50 * 1024 * 1024}
+
+        assert find_temporary_dirs(100, [tmp_path], candidate_dir.stat().st_uid) == []
+        assert find_temporary_dirs(1, [tmp_path], candidate_dir.stat().st_uid + 1) == []
+
+    @patch("pathlib.Path.is_mount", return_value=True)
+    @patch("devclean.scanner._get_dir_sizes")
+    def test_skips_mounted_filesystems(self, mock_sizes, _mock_is_mount, tmp_path):
+        candidate_dir = tmp_path / "mounted-volume"
+        candidate_dir.mkdir()
+
+        assert find_temporary_dirs(1, [tmp_path], candidate_dir.stat().st_uid) == []
+        mock_sizes.assert_called_once_with([])

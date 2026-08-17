@@ -83,6 +83,9 @@ snapshots can retain deleted data (`tmutil listlocalsnapshots /`).
 Leave these alone unless the user raises them:
 
 - Model caches (`~/.cache/huggingface`) — recoverable but a slow re-download.
+- Temporary-root candidates (`/private/tmp`, `/var/tmp`, and the per-user macOS
+  temp directory) — location is not evidence that no process needs them or that
+  another copy exists.
 - Project-owned caches under `~/.cache/<project-name>` — the user's own data.
 - Anything under a repo's data directories, however large.
 

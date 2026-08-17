@@ -12,6 +12,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .exceptions import PathNotFoundError, UnsafePathError
+from .locations import temporary_roots
 
 SYSTEM_ROOTS: tuple[str, ...] = (
     "/",
@@ -25,6 +26,7 @@ SYSTEM_ROOTS: tuple[str, ...] = (
     "/etc",
     "/var",
     "/opt",
+    "/private",
 )
 
 HOME_SUBDIRS: tuple[str, ...] = (
@@ -55,10 +57,11 @@ tools' data at once, so it needs an explicit per-path decision.
 
 def protected_paths(extra: list[str] | None = None) -> list[Path]:
     """Build the full protected set: system roots, home, its top-level dirs, plus extras."""
-    home = Path.home()
-    paths: list[Path] = [Path(root) for root in SYSTEM_ROOTS]
+    home = Path.home().resolve()
+    paths: list[Path] = [Path(root).resolve() for root in SYSTEM_ROOTS]
     paths.append(home)
     paths.extend(home / name for name in HOME_SUBDIRS)
+    paths.extend(temporary_roots())
 
     for candidate in extra or []:
         try:
@@ -91,7 +94,7 @@ def assert_safe_to_delete(
         raise PathNotFoundError(f"Path does not exist: {path}")
 
     resolved = path.resolve()
-    home = Path.home()
+    home = Path.home().resolve()
 
     # Named protections first, so a path on the list reports why it is on the
     # list rather than the more general ancestor rule below.
@@ -99,13 +102,19 @@ def assert_safe_to_delete(
         if resolved == protected:
             raise UnsafePathError(f"Cannot delete protected path: {resolved}")
 
+    try:
+        if resolved.is_mount():
+            raise UnsafePathError(f"Cannot delete a mounted filesystem: {resolved}")
+    except OSError as exc:
+        raise UnsafePathError(f"Cannot verify whether path is a mount point: {resolved}") from exc
+
     # An ancestor of home takes the whole account with it. Never bypassable.
     if home.is_relative_to(resolved):
         raise UnsafePathError(f"Refusing to delete a parent of your home directory: {resolved}")
 
     # Anything directly inside a system root is OS or application territory.
     for root in SYSTEM_ROOTS:
-        root_path = Path(root)
+        root_path = Path(root).resolve()
         if root_path == Path("/"):
             continue
         if resolved.parent == root_path:
@@ -118,8 +127,10 @@ def assert_safe_to_delete(
                 f"{resolved} sits directly under your home directory; "
                 "delete it explicitly by path if you mean it"
             )
-    elif not any(resolved.is_relative_to(Path(r)) for r in SYSTEM_ROOTS):
-        raise UnsafePathError(f"Path is outside your home directory: {resolved}")
+    elif not any(resolved.is_relative_to(root) for root in temporary_roots()):
+        raise UnsafePathError(
+            f"Path is outside your home directory and recognized temporary roots: {resolved}"
+        )
 
 
 def is_safe_to_delete(

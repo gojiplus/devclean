@@ -43,13 +43,20 @@ def _human(size_bytes: int) -> str:
     return f"{size_bytes / (1024**2):.0f} MB"
 
 
-def _run_scan(min_size: int | None, no_venvs: bool, no_node: bool, no_project: bool) -> ScanResult:
+def _run_scan(
+    min_size: int | None,
+    no_venvs: bool,
+    no_node: bool,
+    no_project: bool,
+    no_temp: bool,
+) -> ScanResult:
     config = load_config()
     return scan_all(
         min_size_mb=min_size if min_size is not None else config.scan.min_size_mb,
-        include_venvs=not no_venvs,
-        include_node_modules=not no_node,
+        include_venvs=config.scan.include_venvs and not no_venvs,
+        include_node_modules=config.scan.include_node_modules and not no_node,
         include_project_cruft=not no_project,
+        include_temporary_dirs=config.scan.include_temporary_dirs and not no_temp,
     )
 
 
@@ -102,10 +109,11 @@ def scan(
     no_venvs: bool = typer.Option(False, "--no-venvs", help="Skip virtualenv scan"),
     no_node: bool = typer.Option(False, "--no-node", help="Skip node_modules scan"),
     no_project: bool = typer.Option(False, "--no-project", help="Skip project-local scan"),
+    no_temp: bool = typer.Option(False, "--no-temp", help="Skip temporary-directory scan"),
     as_json: bool = typer.Option(False, "--json", help="Emit JSON instead of a table"),
 ) -> None:
     """Scan for cruft. Read-only — never deletes anything."""
-    result = _run_scan(min_size, no_venvs, no_node, no_project)
+    result = _run_scan(min_size, no_venvs, no_node, no_project, no_temp)
 
     if as_json:
         typer.echo(
@@ -130,9 +138,10 @@ def plan(
     no_venvs: bool = typer.Option(False, "--no-venvs", help="Skip virtualenv scan"),
     no_node: bool = typer.Option(False, "--no-node", help="Skip node_modules scan"),
     no_project: bool = typer.Option(False, "--no-project", help="Skip project-local scan"),
+    no_temp: bool = typer.Option(False, "--no-temp", help="Skip temporary-directory scan"),
 ) -> None:
     """Show what a cleanup would do, grouped by tier. Deletes nothing."""
-    result = _run_scan(min_size, no_venvs, no_node, no_project)
+    result = _run_scan(min_size, no_venvs, no_node, no_project, no_temp)
 
     for tier in (Tier.AUTO, Tier.VERIFIED, Tier.PROBE, Tier.INSPECT):
         group = result.by_tier(tier)
@@ -237,7 +246,7 @@ def _clean_tier(
         )
         raise typer.Exit(1)
 
-    result = _run_scan(min_size, False, False, False)
+    result = _run_scan(min_size, False, False, False, True)
     targets: list[Candidate] = [c for c in result.by_tier(tier) if c.bulk_deletable]
 
     if not targets:

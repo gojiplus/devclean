@@ -82,6 +82,9 @@ def show(
         table.add_row("Minimum size", f"{config.scan.min_size_mb} MB")
         table.add_row("Include venvs", "✓" if config.scan.include_venvs else "✗")
         table.add_row("Include node_modules", "✓" if config.scan.include_node_modules else "✗")
+        table.add_row(
+            "Include temporary directories", "✓" if config.scan.include_temporary_dirs else "✗"
+        )
         table.add_row("Timeout", f"{config.scan.timeout_seconds} seconds")
         table.add_row("Max depth", str(config.scan.max_depth))
         table.add_row("Parallel workers", str(config.scan.parallel_workers))
