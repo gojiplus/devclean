@@ -1,24 +1,25 @@
 [project]
 name = "devclean"
 version = "0.3.0"
-description = "AI-powered disk cleanup for developers on macOS"
+description = "Evidence-driven disk cleanup for developers on macOS"
 readme = "README.md"
 requires-python = ">=3.11"
-license = {text = "MIT"}
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
     {name = "Gaurav Sood"},
 ]
-keywords = ["cleanup", "disk-space", "developer-tools", "macos", "ai", "storage"]
+keywords = ["cleanup", "disk-space", "developer-tools", "macos", "storage"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: Console",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: MacOS",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: System :: Systems Administration",
     "Topic :: Utilities",
 ]
@@ -33,13 +34,15 @@ dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
     "ruff>=0.7.0",
-    "mypy>=1.5.0",
     "pre-commit>=3.0.0",
+    "pyright>=1.1.390",
+    "pydoclint>=0.5",
 ]
 test = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
 ]
+docs = ["sphinx>=8", "furo", "myst-parser", "sphinx-copybutton", "py-canon @ git+https://github.com/gojiplus/py-canon@v1"]
 
 [project.urls]
 Homepage = "https://github.com/gojiplus/devclean"
@@ -51,63 +54,51 @@ Documentation = "https://github.com/gojiplus/devclean#readme"
 devclean = "devclean.cli:app"
 
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["uv_build>=0.12.5,<0.13"]
+build-backend = "uv_build"
 
-[tool.hatch.build.targets.wheel]
-packages = ["devclean"]
+[tool.uv.build-backend]
+module-name = "devclean"
+module-root = ""
 
-[tool.mypy]
-python_version = "3.11"
-warn_return_any = true
-warn_unused_configs = true
-disallow_untyped_defs = true
-check_untyped_defs = true
+[tool.pyright]
+include = ["devclean"]
+typeCheckingMode = "standard"
+
+[tool.pydoclint]
+style = "google"
+arg-type-hints-in-docstring = false
+check-return-types = false
+check-class-attributes = false
+allow-init-docstring = true
+exclude = '\.venv|tests|docs'
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = "test_*.py"
-addopts = "--cov=devclean --cov-report=html --cov-report=term-missing"
+addopts = "--cov=devclean --cov-report=term-missing"
 
 [tool.ruff]
-line-length = 100
+line-length = 88
 target-version = "py311"
 
 [tool.ruff.lint]
-# Enable flake8-bugbear (`B`) rules, in addition to the defaults.
-select = [
-    "E",    # pycodestyle errors
-    "W",    # pycodestyle warnings  
-    "F",    # pyflakes
-    "I",    # isort
-    "B",    # flake8-bugbear
-    "C4",   # flake8-comprehensions
-    "UP",   # pyupgrade
-    "D",    # pydocstyle
+external = ["DOC"]
+select = ["E", "W", "F", "I", "B", "C4", "UP", "N", "D", "S", "SIM", "T20", "PT", "RUF"]
+ignore = ["D203", "D213", "B008", "B904", "D102", "D107", "D202", "D413", "E501", "UP035",
+    # Disk-cleanup tool: shells out to du/find/lsof/port by design, and best-effort
+    # probes deliberately swallow per-path errors. Mirrors the bandit skips below.
+    "S110", "S112", "S603", "S607",
 ]
-
-# Ignore specific rules that are problematic for our use case
-ignore = [
-    "E501",   # line too long (handled by formatter)
-    "D107",   # missing docstring in __init__
-    "D102",   # missing docstring in public method (properties don't need docs)
-    "D202",   # no blank lines allowed after function docstring  
-    "D413",   # missing blank line after last section (pydocstyle is strict)
-    "B008",   # do not perform function calls in argument defaults (typer pattern)
-    "B904",   # use raise from within except (not always needed)
-    "F401",   # unused import (often needed for __init__.py)
-    "F841",   # local variable assigned but never used (common in except blocks)
-    "UP035",  # typing imports (we want explicit typing for clarity)
-]
-
-# Allow specific rules per file
-[tool.ruff.lint.per-file-ignores]
-"__init__.py" = ["F401"]
-"tests/**" = ["F401", "D", "E722"]  # Allow bare except in tests
-"devclean/scanner.py" = ["E722"]  # Allow bare except for error handling
 
 [tool.ruff.lint.pydocstyle]
-convention = "google"  # Use Google docstring convention to avoid conflicts
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+# S108: tests use literal /tmp paths as fixtures, never as real temp files.
+# PT019: @patch injects mocks as leading-underscore params ruff mistakes for fixtures.
+"tests/**" = ["S101", "S108", "PT019", "D"]
+"docs/**" = ["D"]
 
 [tool.bandit]
 # Ignore subprocess warnings - this is a system administration tool

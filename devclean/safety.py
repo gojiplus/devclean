@@ -1,10 +1,8 @@
 """The single guard on deletion.
 
 This logic previously existed in three independent copies that had drifted
-apart: two in the agent tool layer and one in ``validation``. Only the
-``validation`` copy honoured the user's configured ``protected_paths``, and the
-agent path never consulted it. There is now one implementation and every caller
-goes through it.
+apart, and only one of them honored the user's configured ``protected_paths``.
+There is now one implementation and every caller goes through it.
 """
 
 from __future__ import annotations
@@ -106,11 +104,15 @@ def assert_safe_to_delete(
         if resolved.is_mount():
             raise UnsafePathError(f"Cannot delete a mounted filesystem: {resolved}")
     except OSError as exc:
-        raise UnsafePathError(f"Cannot verify whether path is a mount point: {resolved}") from exc
+        raise UnsafePathError(
+            f"Cannot verify whether path is a mount point: {resolved}"
+        ) from exc
 
     # An ancestor of home takes the whole account with it. Never bypassable.
     if home.is_relative_to(resolved):
-        raise UnsafePathError(f"Refusing to delete a parent of your home directory: {resolved}")
+        raise UnsafePathError(
+            f"Refusing to delete a parent of your home directory: {resolved}"
+        )
 
     # Anything directly inside a system root is OS or application territory.
     for root in SYSTEM_ROOTS:
@@ -118,7 +120,9 @@ def assert_safe_to_delete(
         if root_path == Path("/"):
             continue
         if resolved.parent == root_path:
-            raise UnsafePathError(f"Cannot delete a top-level entry of {root}: {resolved}")
+            raise UnsafePathError(
+                f"Cannot delete a top-level entry of {root}: {resolved}"
+            )
 
     if resolved.is_relative_to(home):
         depth = len(resolved.relative_to(home).parts)

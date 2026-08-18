@@ -42,6 +42,8 @@ class TestAssertSafeToDelete:
             assert_safe_to_delete(Path("/"))
 
     def test_shared_temp_root_is_refused(self):
+        if not Path("/private/tmp").exists():
+            pytest.skip("no /private/tmp on this platform (CI wheel job runs on Linux)")
         with pytest.raises(UnsafePathError, match="protected"):
             assert_safe_to_delete(Path("/private/tmp"))
 
@@ -64,7 +66,9 @@ class TestAssertSafeToDelete:
         fake_home.mkdir()
         outside.mkdir(parents=True)
         monkeypatch.setattr(Path, "home", classmethod(lambda cls: fake_home))
-        monkeypatch.setattr("devclean.safety.temporary_roots", lambda: [tmp_path / "elsewhere"])
+        monkeypatch.setattr(
+            "devclean.safety.temporary_roots", lambda: [tmp_path / "elsewhere"]
+        )
 
         with pytest.raises(UnsafePathError, match="outside your home"):
             assert_safe_to_delete(outside)
@@ -118,8 +122,8 @@ class TestAssertSafeToDelete:
         with pytest.raises(UnsafePathError, match="parent of your home"):
             assert_safe_to_delete(tmp_path / "home", require_depth=False)
 
-    def test_configured_protected_path_is_honoured(self, tmp_path, monkeypatch):
-        """The agent path used to ignore user config entirely."""
+    def test_configured_protected_path_is_honored(self, tmp_path, monkeypatch):
+        """A deletion caller must not be able to ignore user config."""
         fake_home = tmp_path / "home"
         keep = fake_home / "Documents" / "GitHub" / "keep-me"
         keep.mkdir(parents=True)

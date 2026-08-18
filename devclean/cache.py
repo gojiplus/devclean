@@ -4,9 +4,7 @@ import json
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
-
-from .exceptions import ConfigurationError
+from typing import Any
 
 
 @dataclass
@@ -55,7 +53,7 @@ class ScanCache:
                 if isinstance(value, dict):
                     self._cache[key] = CacheEntry(**value)
 
-        except Exception as e:
+        except Exception:
             # If cache is corrupted, start fresh
             self._cache = {}
 
@@ -82,7 +80,9 @@ class ScanCache:
 
     def _clean_expired(self) -> None:
         """Remove expired entries from cache."""
-        expired_keys = [key for key, entry in self._cache.items() if self._is_expired(entry)]
+        expired_keys = [
+            key for key, entry in self._cache.items() if self._is_expired(entry)
+        ]
 
         for key in expired_keys:
             del self._cache[key]
@@ -109,7 +109,9 @@ class ScanCache:
 
         return entry
 
-    def set(self, path: Path, size_bytes: int, exists: bool, error: str | None = None) -> None:
+    def set(
+        self, path: Path, size_bytes: int, exists: bool, error: str | None = None
+    ) -> None:
         """Cache information for a path.
 
         Args:
@@ -165,10 +167,14 @@ class ScanCache:
 
         # Count by status
         exists_count = sum(1 for entry in self._cache.values() if entry.exists)
-        error_count = sum(1 for entry in self._cache.values() if entry.error is not None)
+        error_count = sum(
+            1 for entry in self._cache.values() if entry.error is not None
+        )
 
         # Calculate total cached size
-        total_size = sum(entry.size_bytes for entry in self._cache.values() if entry.exists)
+        total_size = sum(
+            entry.size_bytes for entry in self._cache.values() if entry.exists
+        )
 
         return {
             "total_entries": total_entries,

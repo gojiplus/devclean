@@ -163,6 +163,14 @@ CRUFT_PATTERNS: list[CruftPattern] = [
         safe=False,  # Could break running containers
     ),
     CruftPattern(
+        "{home}/.colima",
+        "docker",
+        "Colima virtual machine, images, and volumes",
+        check_installed="colima status",
+        safe=False,
+        recovery="Recreated by `colima start`; images and volumes are not restored",
+    ),
+    CruftPattern(
         "{home}/.docker",
         "docker",
         "Docker config and buildx cache",

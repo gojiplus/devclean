@@ -1,6 +1,6 @@
 # devclean
 
-[![CI](https://github.com/gojiplus/devclean/workflows/CI/badge.svg)](https://github.com/gojiplus/devclean/actions)
+[![CI](https://github.com/gojiplus/devclean/actions/workflows/ci.yml/badge.svg)](https://github.com/gojiplus/devclean/actions/workflows/ci.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -33,6 +33,10 @@ devclean clean --tier auto
 ```
 
 `scan --json` emits the same data for scripting.
+
+Each scan section can be switched off per run: `--no-venvs`, `--no-node`,
+`--no-project`, `--no-system`, `--no-temp`. `--min-size N` raises the size
+floor for caches, system artifacts, and temporary directories.
 
 ## Tiers
 
@@ -89,13 +93,27 @@ one restore actually works before calling it done.
 Per-user caches for uv, pip, npm, pnpm, yarn, Poetry, conda, Homebrew,
 pre-commit, Cargo, Go, Gradle, Maven, Playwright, Selenium, JetBrains, Xcode and
 the iOS simulator; PyTorch, HuggingFace and Whisper model caches; virtualenvs
-and `node_modules` under your project directories; and project-local caches
+and `node_modules` under your project directories or directly under your home
+directory; and project-local caches
 (`__pycache__`, `.pytest_cache`, `.mypy_cache`, `.ruff_cache`, `.tox`) rolled up
-per category rather than listed one directory at a time. It also checks direct
-children of `/private/tmp`, `/var/tmp`, and the current user's macOS temporary
-directory. Only directories owned by the current user are reported, and these
-always stay in `inspect`: being in temporary storage is not proof that a
-directory is unused or reproducible.
+per category rather than listed one directory at a time. One pruned filesystem
+walk supplies all project-level checks, including roots from
+`additional_search_paths`.
+
+On macOS, `devclean` also reports non-current TeX Live and R installations,
+inactive python.org frameworks, Homebrew global Python package trees, retained
+MacTeX installers, broken MacPorts prefixes, Chrome code-signing clones, and VS
+Code extension directories marked obsolete. These system findings always stay
+in `inspect`. A stale version may be intentional, and finding it does not grant
+permission to delete it.
+
+The scan also checks direct children of `/private/tmp`, `/var/tmp`, and the
+current user's macOS temporary directory. Only directories owned by the current
+user are reported, and these parents always stay in `inspect`: being in
+temporary storage is not proof that a directory is unused or reproducible.
+Verified virtualenvs and `node_modules` nested inside those parents are listed
+separately as bulk-deletable when a manifest proves how to restore them.
+Overlapping parent and child candidates are counted only once in the scan total.
 
 Model caches and anything a probe flags stay out of the bulk-deletable set.
 
@@ -104,12 +122,20 @@ Model caches and anything a probe flags stay out of the bulk-deletable set.
 Optional, at `./.devclean.toml` or `~/.devclean.toml`:
 
 ```toml
+additional_search_paths = ["~/workspace", "/Volumes/code"]
+
 [scan]
-min_size_mb = 100          # global floor; individual patterns may override it
+min_size_mb = 100
+max_depth = 8
+timeout_seconds = 120
+include_system_artifacts = true
 
 [safety]
 protected_paths = ["~/important-project"]
 ```
+
+Relative additional paths resolve from your home directory. Overlapping roots
+are collapsed so a directory tree is not scanned twice.
 
 `devclean config init` writes a starter file; `devclean config show` prints the
 active settings.
@@ -119,8 +145,12 @@ active settings.
 One guard, in `devclean/safety.py`, used by every deletion path. It refuses your
 home directory, its top-level folders, system roots, temporary roots, anything
 directly inside a system root, and any parent of your home directory.
-Configured `protected_paths` are honoured everywhere. Outside your home,
+Configured `protected_paths` are honored everywhere. Outside your home,
 deletion is limited to children of the recognized temporary roots.
+
+System artifact detection is inventory only. The bulk cleanup command cannot
+delete system toolchains, package-manager prefixes, installers, Chrome clones,
+or obsolete editor extensions.
 
 Deleting a nested path such as `~/Documents/GitHub/project/.venv` is allowed —
 that is the point — while `~/Documents` itself is not.
@@ -128,8 +158,8 @@ that is the point — while `~/Documents` itself is not.
 ## Development
 
 ```bash
-uv sync --all-extras
-make check-all      # ruff, mypy, bandit, pytest
+make install-dev
+make check-all      # ruff, pyright, pydoclint, bandit, pytest
 ```
 
 ## License

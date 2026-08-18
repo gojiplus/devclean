@@ -1,0 +1,14 @@
+additional_search_paths = []
+
+[scan]
+foo = "bar"
+min_size_mb = 100
+include_venvs = true
+include_node_modules = true
+include_system_artifacts = true
+include_temporary_dirs = true
+timeout_seconds = 120
+max_depth = 8
+
+[safety]
+protected_paths = ["~", "~/Documents", "~/Desktop", "~/Downloads", "~/Pictures", "~/Music", "~/Movies", "/", "/System", "/Applications"]
