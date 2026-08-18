@@ -74,18 +74,23 @@ class ScanResult:
                     sizes_by_path.get(candidate.path, 0),
                 )
 
-        roots: list[Path] = []
-        absolute_total = 0
+        counted: dict[Path, int] = {}
         for path, size in sorted(
             sizes_by_path.items(),
             key=lambda item: (len(item[0].parts), str(item[0])),
         ):
-            if any(path.is_relative_to(root) for root in roots):
+            ancestor = next(
+                (root for root in counted if path.is_relative_to(root)), None
+            )
+            if ancestor is not None:
+                # Measurements can disagree when the ancestor's figure came
+                # from a stale cache: a fresh child measurement then proves
+                # the ancestor is at least that large.
+                counted[ancestor] = max(counted[ancestor], size)
                 continue
-            roots.append(path)
-            absolute_total += size
+            counted[path] = size
 
-        return absolute_total + relative_total
+        return sum(counted.values()) + relative_total
 
     @property
     def total_gb(self) -> float:
@@ -263,8 +268,12 @@ def _search_roots(
     """Return existing, non-overlapping project search roots."""
     requested: list[Path] = []
     defaults: Iterable[str | Path] = VENV_SEARCH_DIRS if include_defaults else ()
-    for raw in (*defaults, *additional_search_paths):
-        rendered = str(raw).format(home=home)
+    # Only the built-in defaults carry a {home} placeholder. User-configured
+    # paths are taken literally: a brace is a legal filename character, and
+    # str.format on one raises KeyError.
+    candidates = [(str(raw).format(home=home)) for raw in defaults]
+    candidates += [str(raw) for raw in additional_search_paths]
+    for rendered in candidates:
         if rendered == "~":
             root = home
         elif rendered.startswith("~/"):

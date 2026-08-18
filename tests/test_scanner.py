@@ -124,6 +124,27 @@ class TestScanResult:
         assert result.total_bytes == 200 * 1024**2
         assert result.reclaimable_bytes == 100 * 1024**2
 
+    def test_fresh_child_measurement_raises_stale_parent_figure(self):
+        """A child measured larger than its parent proves the parent's figure stale.
+
+        Sizes can disagree when the parent's number came from a stale cache;
+        the total must never be smaller than any single candidate within it.
+        """
+        parent = make_candidate(
+            path=Path("/private/tmp/job"),
+            size_bytes=100 * 1024**2,
+            tier=Tier.INSPECT,
+        )
+        environment = make_candidate(
+            path=Path("/private/tmp/job/.venv"),
+            size_bytes=200 * 1024**2,
+            tier=Tier.VERIFIED,
+        )
+
+        result = ScanResult(candidates=[parent, environment])
+
+        assert result.total_bytes == 200 * 1024**2
+
 
 class TestGetDirSize:
     """Tests for get_dir_size. All pass use_cache=False so the on-disk cache
@@ -220,6 +241,15 @@ class TestProjectInventory:
         roots = _search_roots(home, [extra, "projects/nested", "~/extra"])
         assert set(roots) == {projects, extra, home_extra}
         assert nested not in roots
+
+    def test_configured_paths_with_braces_are_taken_literally(self, tmp_path):
+        """A brace is a legal filename character; str.format on it raises KeyError."""
+        braced = tmp_path / "work{ruby}"
+        braced.mkdir()
+
+        roots = _search_roots(tmp_path, [str(braced)], include_defaults=False)
+
+        assert roots == [braced.resolve()]
 
     def test_one_walk_finds_project_and_home_level_dependencies(
         self, tmp_path, monkeypatch

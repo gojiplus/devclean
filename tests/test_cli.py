@@ -161,6 +161,18 @@ class TestScanIsReadOnly:
         assert "Error scanning node_modules: boom" in result.stdout
 
     @patch("devclean.cli._run_scan")
+    def test_scan_reports_stage_errors_alongside_candidates(self, mock_scan):
+        mock_scan.return_value = ScanResult(
+            candidates=[candidate()],
+            errors=["Error scanning node_modules: boom"],
+        )
+
+        result = runner.invoke(app, ["scan"])
+
+        assert result.exit_code == 0
+        assert "Error scanning node_modules: boom" in result.stdout
+
+    @patch("devclean.cli._run_scan")
     def test_plan_reports_stage_errors(self, mock_scan):
         """A failed stage must not leave `plan` looking like a clean bill of health."""
         mock_scan.return_value = ScanResult(

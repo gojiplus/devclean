@@ -46,6 +46,26 @@ def test_loads_project_scan_and_system_settings(tmp_path):
     assert config.scan.timeout_seconds == 45
 
 
+def test_save_config_preserves_comments_and_unmanaged_keys(tmp_path):
+    """Editing one setting must not strip a hand-written config file."""
+    config_path = tmp_path / ".devclean.toml"
+    config_path.write_text(
+        "# my hand-written note\nfuture_key = 'kept'\n[scan]\nmin_size_mb = 50\n",
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+    config.safety.protected_paths = ["~/keep-me"]
+    save_config(config, config_path)
+
+    text = config_path.read_text(encoding="utf-8")
+    assert "# my hand-written note" in text
+    assert "future_key" in text
+    reloaded = load_config(config_path)
+    assert reloaded.scan.min_size_mb == 50
+    assert reloaded.safety.protected_paths == ["~/keep-me"]
+
+
 def test_sample_config_keeps_project_paths_at_top_level(tmp_path):
     config_path = tmp_path / ".devclean.toml"
 

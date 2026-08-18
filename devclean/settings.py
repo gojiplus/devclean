@@ -149,30 +149,33 @@ def save_config(config: DevCleanConfig, config_path: Path | None = None) -> None
     if config_path is None:
         config_path = get_config_path()
 
-    try:
-        # Convert config to dict for TOML
-        data = {
-            "scan": {
-                "min_size_mb": config.scan.min_size_mb,
-                "include_venvs": config.scan.include_venvs,
-                "include_node_modules": config.scan.include_node_modules,
-                "include_system_artifacts": config.scan.include_system_artifacts,
-                "include_temporary_dirs": config.scan.include_temporary_dirs,
-                "timeout_seconds": config.scan.timeout_seconds,
-                "max_depth": config.scan.max_depth,
-            },
-            "safety": {
-                "protected_paths": config.safety.protected_paths,
-            },
-            "additional_search_paths": config.additional_search_paths,
-        }
+    # tomllib only reads TOML; tomlkit round-trips it with comments,
+    # ordering, and unmanaged keys intact.
+    import tomlkit
 
-        # Note: tomllib only supports reading TOML, so we'll need tomlkit for writing
-        import tomlkit
+    try:
+        if config_path.exists():
+            document = tomlkit.parse(config_path.read_text(encoding="utf-8"))
+        else:
+            document = tomlkit.document()
+
+        scan = document.setdefault("scan", tomlkit.table())
+        scan["min_size_mb"] = config.scan.min_size_mb
+        scan["include_venvs"] = config.scan.include_venvs
+        scan["include_node_modules"] = config.scan.include_node_modules
+        scan["include_system_artifacts"] = config.scan.include_system_artifacts
+        scan["include_temporary_dirs"] = config.scan.include_temporary_dirs
+        scan["timeout_seconds"] = config.scan.timeout_seconds
+        scan["max_depth"] = config.scan.max_depth
+
+        safety = document.setdefault("safety", tomlkit.table())
+        safety["protected_paths"] = config.safety.protected_paths
+
+        document["additional_search_paths"] = config.additional_search_paths
 
         config_path.parent.mkdir(parents=True, exist_ok=True)
         with open(config_path, "w", encoding="utf-8") as f:
-            f.write(tomlkit.dumps(data))
+            f.write(tomlkit.dumps(document))
 
     except Exception as e:
         raise ConfigurationError(f"Failed to save config to {config_path}: {e}") from e
