@@ -173,9 +173,14 @@ def save_config(config: DevCleanConfig, config_path: Path | None = None) -> None
 
         document["additional_search_paths"] = config.additional_search_paths
 
+        # Serialize before touching the file, and replace atomically, so a
+        # serialization error or a crash mid-write cannot leave the user's
+        # config truncated.
+        serialized = tomlkit.dumps(document)
         config_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(config_path, "w", encoding="utf-8") as f:
-            f.write(tomlkit.dumps(document))
+        staging_path = config_path.with_name(config_path.name + ".tmp")
+        staging_path.write_text(serialized, encoding="utf-8")
+        staging_path.replace(config_path)
 
     except Exception as e:
         raise ConfigurationError(f"Failed to save config to {config_path}: {e}") from e

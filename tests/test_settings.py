@@ -1,5 +1,7 @@
 """Tests for user configuration."""
 
+import pytest
+
 from devclean.settings import (
     DevCleanConfig,
     create_sample_config,
@@ -64,6 +66,28 @@ def test_save_config_preserves_comments_and_unmanaged_keys(tmp_path):
     reloaded = load_config(config_path)
     assert reloaded.scan.min_size_mb == 50
     assert reloaded.safety.protected_paths == ["~/keep-me"]
+
+
+def test_failed_save_leaves_existing_config_intact(tmp_path, monkeypatch):
+    """A serialization error must not truncate the file it meant to update."""
+    import tomlkit
+
+    import devclean.settings as settings_module
+
+    config_path = tmp_path / ".devclean.toml"
+    original = "# precious\n[scan]\nmin_size_mb = 50\n"
+    config_path.write_text(original, encoding="utf-8")
+    config = load_config(config_path)
+
+    def explode(_document):
+        raise ValueError("serialization broke")
+
+    monkeypatch.setattr(tomlkit, "dumps", explode)
+
+    with pytest.raises(settings_module.ConfigurationError):
+        save_config(config, config_path)
+
+    assert config_path.read_text(encoding="utf-8") == original
 
 
 def test_sample_config_keeps_project_paths_at_top_level(tmp_path):

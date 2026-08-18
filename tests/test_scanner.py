@@ -142,8 +142,10 @@ class TestScanResult:
         )
 
         result = ScanResult(candidates=[parent, environment])
+        reversed_result = ScanResult(candidates=[environment, parent])
 
         assert result.total_bytes == 200 * 1024**2
+        assert reversed_result.total_bytes == result.total_bytes
 
 
 class TestGetDirSize:
