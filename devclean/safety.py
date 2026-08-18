@@ -1,10 +1,8 @@
 """The single guard on deletion.
 
 This logic previously existed in three independent copies that had drifted
-apart: two in the agent tool layer and one in ``validation``. Only the
-``validation`` copy honoured the user's configured ``protected_paths``, and the
-agent path never consulted it. There is now one implementation and every caller
-goes through it.
+apart, and only one of them honored the user's configured ``protected_paths``.
+There is now one implementation and every caller goes through it.
 """
 
 from __future__ import annotations

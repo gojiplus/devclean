@@ -1,24 +1,25 @@
 [project]
 name = "devclean"
 version = "0.3.0"
-description = "AI-powered disk cleanup for developers on macOS"
+description = "Evidence-driven disk cleanup for developers on macOS"
 readme = "README.md"
 requires-python = ">=3.11"
-license = {text = "MIT"}
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
     {name = "Gaurav Sood"},
 ]
-keywords = ["cleanup", "disk-space", "developer-tools", "macos", "ai", "storage"]
+keywords = ["cleanup", "disk-space", "developer-tools", "macos", "storage"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: Console",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: MacOS",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: System :: Systems Administration",
     "Topic :: Utilities",
 ]
@@ -33,8 +34,8 @@ dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
     "ruff>=0.7.0",
-    "mypy>=1.5.0",
     "pre-commit>=3.0.0",
+    "pyright>=1.1.390",
 ]
 test = [
     "pytest>=7.0.0",
@@ -51,23 +52,29 @@ Documentation = "https://github.com/gojiplus/devclean#readme"
 devclean = "devclean.cli:app"
 
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["uv_build>=0.12.5,<0.13"]
+build-backend = "uv_build"
 
-[tool.hatch.build.targets.wheel]
-packages = ["devclean"]
+[tool.uv.build-backend]
+module-name = "devclean"
+module-root = ""
 
-[tool.mypy]
-python_version = "3.11"
-warn_return_any = true
-warn_unused_configs = true
-disallow_untyped_defs = true
-check_untyped_defs = true
+[tool.pyright]
+include = ["devclean", "tests"]
+typeCheckingMode = "standard"
+
+[tool.pydoclint]
+style = "google"
+arg-type-hints-in-docstring = false
+check-return-types = false
+check-class-attributes = false
+allow-init-docstring = true
+exclude = '\.venv|tests|docs'
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = "test_*.py"
-addopts = "--cov=devclean --cov-report=html --cov-report=term-missing"
+addopts = "--cov=devclean --cov-report=term-missing"
 
 [tool.ruff]
 line-length = 100
@@ -95,8 +102,6 @@ ignore = [
     "D413",   # missing blank line after last section (pydocstyle is strict)
     "B008",   # do not perform function calls in argument defaults (typer pattern)
     "B904",   # use raise from within except (not always needed)
-    "F401",   # unused import (often needed for __init__.py)
-    "F841",   # local variable assigned but never used (common in except blocks)
     "UP035",  # typing imports (we want explicit typing for clarity)
 ]
 

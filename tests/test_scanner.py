@@ -8,11 +8,18 @@ import pytest
 from devclean.candidates import Candidate, Tier
 from devclean.exceptions import ScanError, ScanTimeoutError
 from devclean.scanner import (
+    ProjectInventory,
     ScanResult,
     _get_dir_sizes,
+    _get_dir_sizes_batched,
+    _search_roots,
+    build_project_inventory,
     check_command_exists,
+    find_node_modules,
     find_temporary_dirs,
+    find_venvs,
     get_dir_size,
+    scan_all,
     scan_known_cruft,
 )
 
@@ -98,6 +105,23 @@ class TestScanResult:
         result.sort()
         assert [c.size_bytes for c in result.candidates] == [100, 50, 1]
 
+    def test_nested_candidate_is_not_double_counted(self):
+        parent = make_candidate(
+            path=Path("/private/tmp/job"),
+            size_bytes=200 * 1024**2,
+            tier=Tier.INSPECT,
+        )
+        environment = make_candidate(
+            path=Path("/private/tmp/job/.venv"),
+            size_bytes=100 * 1024**2,
+            tier=Tier.VERIFIED,
+        )
+
+        result = ScanResult(candidates=[parent, environment])
+
+        assert result.total_bytes == 200 * 1024**2
+        assert result.reclaimable_bytes == 100 * 1024**2
+
 
 class TestGetDirSize:
     """Tests for get_dir_size. All pass use_cache=False so the on-disk cache
@@ -159,6 +183,175 @@ class TestGetDirSizes:
 
         assert _get_dir_sizes([Path("/private/tmp/slow")]) == {}
 
+    @patch("devclean.scanner._get_dir_sizes")
+    def test_large_inputs_are_measured_in_bounded_batches(self, mock_sizes):
+        paths = [Path(f"/tmp/{index}") for index in range(5)]
+        mock_sizes.side_effect = lambda batch, _timeout: dict.fromkeys(batch, 1)
+
+        result = _get_dir_sizes_batched(paths, timeout=7, batch_size=2)
+
+        assert result == dict.fromkeys(paths, 1)
+        assert [call.args[0] for call in mock_sizes.call_args_list] == [
+            paths[:2],
+            paths[2:4],
+            paths[4:],
+        ]
+
+
+class TestProjectInventory:
+    def test_configured_roots_are_used_and_nested_roots_are_collapsed(self, tmp_path, monkeypatch):
+        home = tmp_path / "home"
+        projects = home / "projects"
+        nested = projects / "nested"
+        extra = tmp_path / "extra"
+        nested.mkdir(parents=True)
+        extra.mkdir()
+        monkeypatch.setattr(
+            "devclean.scanner.VENV_SEARCH_DIRS",
+            ("{home}/projects", "{home}/projects/nested"),
+        )
+
+        home_extra = home / "extra"
+        home_extra.mkdir()
+        roots = _search_roots(home, [extra, "projects/nested", "~/extra"])
+        assert set(roots) == {projects, extra, home_extra}
+        assert nested not in roots
+
+    def test_one_walk_finds_project_and_home_level_dependencies(self, tmp_path, monkeypatch):
+        home = tmp_path / "home"
+        project_root = home / "projects"
+        project_venv = project_root / "one" / ".venv"
+        extra_node = tmp_path / "workspace" / "two" / "node_modules"
+        home_venv = home / "analysis-env"
+        home_node = home / "node_modules"
+        for path in (project_venv, extra_node, home_venv, home_node):
+            path.mkdir(parents=True)
+        (project_venv / "pyvenv.cfg").touch()
+        (home_venv / "pyvenv.cfg").touch()
+        monkeypatch.setattr("devclean.scanner.VENV_SEARCH_DIRS", ("{home}/projects",))
+
+        inventory = build_project_inventory(home, [tmp_path / "workspace"])
+
+        assert set(inventory.virtualenvs) == {project_venv, home_venv}
+        assert set(inventory.paths_named("node_modules")) == {extra_node, home_node}
+
+    @patch("devclean.scanner._find_named_dirs", return_value=[])
+    def test_each_non_overlapping_root_is_walked_once(self, mock_find, tmp_path, monkeypatch):
+        home = tmp_path / "home"
+        projects = home / "projects"
+        nested = projects / "nested"
+        nested.mkdir(parents=True)
+        monkeypatch.setattr("devclean.scanner.VENV_SEARCH_DIRS", ("{home}/projects",))
+
+        build_project_inventory(home, [nested])
+
+        mock_find.assert_called_once()
+
+    @patch("devclean.scanner.get_dir_size", return_value=100 * 1024 * 1024)
+    def test_home_level_directories_are_reported_with_safety_probes(self, _mock_size, tmp_path):
+        home = tmp_path / "home"
+        venv = home / "custom-env"
+        node_modules = home / "node_modules"
+        venv.mkdir(parents=True)
+        node_modules.mkdir()
+        (venv / "pyvenv.cfg").touch()
+        inventory = ProjectInventory(by_name={"node_modules": [node_modules]}, virtualenvs=[venv])
+
+        venv_result = find_venvs(home, inventory=inventory)
+        node_result = find_node_modules(home, inventory=inventory)
+
+        assert [item.path for item in venv_result] == [venv]
+        assert venv_result[0].tier is Tier.INSPECT
+        assert [item.path for item in node_result] == [node_modules]
+        assert node_result[0].tier is Tier.INSPECT
+
+
+class TestScanAll:
+    @patch("devclean.cache.save_cache")
+    @patch("devclean.scanner.find_system_artifacts", return_value=[])
+    @patch("devclean.scanner.find_probed_project_dirs", return_value=[])
+    @patch("devclean.scanner.find_project_cruft", return_value=[])
+    @patch("devclean.scanner.find_node_modules", return_value=[])
+    @patch("devclean.scanner.find_venvs", return_value=[])
+    @patch("devclean.scanner.scan_known_cruft", return_value=[])
+    @patch("devclean.scanner.build_project_inventory")
+    def test_project_stages_share_one_inventory(
+        self,
+        mock_inventory,
+        _mock_known,
+        mock_venvs,
+        mock_node,
+        mock_cruft,
+        mock_build,
+        _mock_system,
+        _mock_save,
+        tmp_path,
+    ):
+        inventory = ProjectInventory()
+        mock_inventory.return_value = inventory
+
+        result = scan_all(
+            tmp_path,
+            include_temporary_dirs=False,
+            additional_search_paths=[tmp_path / "extra"],
+            project_max_depth=9,
+            project_scan_timeout=42,
+        )
+
+        assert result.errors == []
+        mock_inventory.assert_called_once_with(
+            tmp_path, [tmp_path / "extra"], maxdepth=9, timeout=42
+        )
+        assert mock_venvs.call_args.kwargs["inventory"] is inventory
+        assert mock_venvs.call_args.args == (tmp_path,)
+        assert mock_node.call_args.kwargs["inventory"] is inventory
+        assert mock_node.call_args.args == (tmp_path,)
+        assert mock_cruft.call_args.kwargs["inventory"] is inventory
+        assert mock_build.call_args.kwargs["inventory"] is inventory
+        assert mock_build.call_args.args == (tmp_path,)
+
+    @patch("devclean.cache.save_cache")
+    @patch("devclean.scanner.find_system_artifacts", return_value=[])
+    @patch("devclean.scanner.scan_known_cruft", return_value=[])
+    @patch("devclean.scanner.get_dir_size", return_value=100 * 1024**2)
+    @patch("devclean.scanner._get_dir_sizes")
+    def test_temp_parent_does_not_hide_verified_environment(
+        self,
+        mock_sizes,
+        _mock_size,
+        _mock_known,
+        _mock_system,
+        _mock_save,
+        tmp_path,
+        monkeypatch,
+    ):
+        home = tmp_path / "home"
+        home.mkdir()
+        temporary_root = tmp_path / "private-tmp"
+        project = temporary_root / "review-worktree"
+        environment = project / ".venv"
+        environment.mkdir(parents=True)
+        (environment / "pyvenv.cfg").touch()
+        (project / "pyproject.toml").touch()
+        mock_sizes.return_value = {project: 200 * 1024**2}
+        monkeypatch.setattr("devclean.scanner.VENV_SEARCH_DIRS", ())
+        monkeypatch.setattr("devclean.scanner.temporary_roots", lambda: [temporary_root])
+
+        result = scan_all(
+            home,
+            include_node_modules=False,
+            include_project_cruft=False,
+            include_system_artifacts=False,
+            min_size_mb=0,
+        )
+
+        assert [(candidate.path, candidate.tier) for candidate in result.candidates] == [
+            (project, Tier.INSPECT),
+            (environment, Tier.VERIFIED),
+        ]
+        assert result.total_bytes == 200 * 1024**2
+        assert result.reclaimable_bytes == 100 * 1024**2
+
 
 class TestCheckCommandExists:
     @patch("devclean.scanner.subprocess.run")
@@ -181,6 +374,14 @@ class TestCheckCommandExists:
 
 
 class TestScanKnownCruft:
+    def test_colima_vm_is_never_bulk_deletable(self):
+        from devclean.config import CRUFT_PATTERNS
+
+        pattern = next(item for item in CRUFT_PATTERNS if item.path_template.endswith(".colima"))
+
+        assert pattern.safe is False
+        assert "volumes are not restored" in pattern.recovery
+
     @patch("devclean.scanner.get_dir_size")
     @patch("devclean.scanner.check_command_exists")
     def test_nothing_found(self, mock_check_cmd, mock_get_size):

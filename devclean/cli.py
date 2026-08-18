@@ -48,6 +48,7 @@ def _run_scan(
     no_venvs: bool,
     no_node: bool,
     no_project: bool,
+    no_system: bool,
     no_temp: bool,
 ) -> ScanResult:
     config = load_config()
@@ -56,13 +57,19 @@ def _run_scan(
         include_venvs=config.scan.include_venvs and not no_venvs,
         include_node_modules=config.scan.include_node_modules and not no_node,
         include_project_cruft=not no_project,
+        include_system_artifacts=config.scan.include_system_artifacts and not no_system,
         include_temporary_dirs=config.scan.include_temporary_dirs and not no_temp,
+        additional_search_paths=config.additional_search_paths,
+        project_max_depth=config.scan.max_depth,
+        project_scan_timeout=config.scan.timeout_seconds,
     )
 
 
 def _render(result: ScanResult) -> None:
     if not result.candidates:
         console.print("[green]Nothing found above the size floor.[/green]")
+        for error in result.errors:
+            console.print(f"[dim]scan warning: {error}[/dim]")
         return
 
     table = Table(title="Cleanup candidates")
@@ -105,15 +112,16 @@ def _render(result: ScanResult) -> None:
 
 @app.command()
 def scan(
-    min_size: int = typer.Option(None, "--min-size", "-m", help="Global size floor in MB"),
+    min_size: int | None = typer.Option(None, "--min-size", "-m", help="Global size floor in MB"),
     no_venvs: bool = typer.Option(False, "--no-venvs", help="Skip virtualenv scan"),
     no_node: bool = typer.Option(False, "--no-node", help="Skip node_modules scan"),
     no_project: bool = typer.Option(False, "--no-project", help="Skip project-local scan"),
+    no_system: bool = typer.Option(False, "--no-system", help="Skip system toolchain scan"),
     no_temp: bool = typer.Option(False, "--no-temp", help="Skip temporary-directory scan"),
     as_json: bool = typer.Option(False, "--json", help="Emit JSON instead of a table"),
 ) -> None:
     """Scan for cruft. Read-only — never deletes anything."""
-    result = _run_scan(min_size, no_venvs, no_node, no_project, no_temp)
+    result = _run_scan(min_size, no_venvs, no_node, no_project, no_system, no_temp)
 
     if as_json:
         typer.echo(
@@ -134,14 +142,15 @@ def scan(
 
 @app.command()
 def plan(
-    min_size: int = typer.Option(None, "--min-size", "-m", help="Global size floor in MB"),
+    min_size: int | None = typer.Option(None, "--min-size", "-m", help="Global size floor in MB"),
     no_venvs: bool = typer.Option(False, "--no-venvs", help="Skip virtualenv scan"),
     no_node: bool = typer.Option(False, "--no-node", help="Skip node_modules scan"),
     no_project: bool = typer.Option(False, "--no-project", help="Skip project-local scan"),
+    no_system: bool = typer.Option(False, "--no-system", help="Skip system toolchain scan"),
     no_temp: bool = typer.Option(False, "--no-temp", help="Skip temporary-directory scan"),
 ) -> None:
     """Show what a cleanup would do, grouped by tier. Deletes nothing."""
-    result = _run_scan(min_size, no_venvs, no_node, no_project, no_temp)
+    result = _run_scan(min_size, no_venvs, no_node, no_project, no_system, no_temp)
 
     for tier in (Tier.AUTO, Tier.VERIFIED, Tier.PROBE, Tier.INSPECT):
         group = result.by_tier(tier)
@@ -164,6 +173,9 @@ def plan(
         "or [bold]devclean clean PATH[/bold] for anything listed as needing a decision."
     )
 
+    for error in result.errors:
+        console.print(f"[dim]scan warning: {error}[/dim]")
+
 
 def _delete(path: Path, use_sudo: bool = False) -> None:
     if use_sudo:
@@ -179,7 +191,7 @@ def clean(
     dry_run: bool = typer.Option(False, "--dry-run", help="Show what would happen, delete nothing"),
     force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation"),
     use_sudo: bool = typer.Option(False, "--sudo", "-s", help="Use sudo to delete"),
-    min_size: int = typer.Option(None, "--min-size", "-m", help="Global size floor in MB"),
+    min_size: int | None = typer.Option(None, "--min-size", "-m", help="Global size floor in MB"),
 ) -> None:
     """Delete a single path, or a whole tier with --tier.
 
@@ -229,7 +241,7 @@ def _clean_tier(
     dry_run: bool,
     force: bool,
     use_sudo: bool,
-    min_size: int,
+    min_size: int | None,
     config: DevCleanConfig,
 ) -> None:
     try:
@@ -246,7 +258,7 @@ def _clean_tier(
         )
         raise typer.Exit(1)
 
-    result = _run_scan(min_size, False, False, False, True)
+    result = _run_scan(min_size, False, False, False, True, False)
     targets: list[Candidate] = [c for c in result.by_tier(tier) if c.bulk_deletable]
 
     if not targets:

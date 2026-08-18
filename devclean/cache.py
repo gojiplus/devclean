@@ -4,9 +4,7 @@ import json
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
-
-from .exceptions import ConfigurationError
+from typing import Any
 
 
 @dataclass
@@ -55,7 +53,7 @@ class ScanCache:
                 if isinstance(value, dict):
                     self._cache[key] = CacheEntry(**value)
 
-        except Exception as e:
+        except Exception:
             # If cache is corrupted, start fresh
             self._cache = {}
 

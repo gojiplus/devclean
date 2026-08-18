@@ -118,8 +118,8 @@ class TestAssertSafeToDelete:
         with pytest.raises(UnsafePathError, match="parent of your home"):
             assert_safe_to_delete(tmp_path / "home", require_depth=False)
 
-    def test_configured_protected_path_is_honoured(self, tmp_path, monkeypatch):
-        """The agent path used to ignore user config entirely."""
+    def test_configured_protected_path_is_honored(self, tmp_path, monkeypatch):
+        """A deletion caller must not be able to ignore user config."""
         fake_home = tmp_path / "home"
         keep = fake_home / "Documents" / "GitHub" / "keep-me"
         keep.mkdir(parents=True)

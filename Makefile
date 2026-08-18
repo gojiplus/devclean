@@ -1,4 +1,4 @@
-.PHONY: help install install-dev test lint format type-check security clean build docs pre-commit ci-docker
+.PHONY: help install install-dev test test-quick lint format type-check docstring-check security clean build pre-commit check-all release-check dev-setup dev-check
 
 help:  ## Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -7,11 +7,11 @@ install:  ## Install the package
 	uv sync
 
 install-dev:  ## Install development dependencies
-	uv sync --all-extras
+	uv sync --all-groups
 	uv run pre-commit install
 
 test:  ## Run tests
-	uv run pytest -v --cov=devclean --cov-report=html --cov-report=term-missing
+	uv run pytest -v --cov=devclean --cov-report=term-missing
 
 test-quick:  ## Run tests without coverage
 	uv run pytest -v
@@ -24,8 +24,11 @@ format:  ## Format code
 	uv run ruff format .
 	uv run ruff check --fix .
 
-type-check:  ## Run type checking
-	uv run mypy devclean/
+type-check:  ## Run type checking (pyright, matching CI)
+	uv run pyright
+
+docstring-check:  ## Check docstrings against signatures (matching CI)
+	uvx --from pydoclint==0.9.1 pydoclint devclean/
 
 security:  ## Run security checks
 	uvx bandit -c pyproject.toml -r devclean/
@@ -35,7 +38,7 @@ clean:  ## Clean build artifacts
 	rm -rf dist/
 	rm -rf *.egg-info/
 	rm -rf .pytest_cache/
-	rm -rf .coverage
+	rm -rf .coverage coverage.xml
 	rm -rf htmlcov/
 	find . -type d -name __pycache__ -exec rm -rf {} +
 	find . -type f -name "*.pyc" -delete
@@ -43,20 +46,10 @@ clean:  ## Clean build artifacts
 build:  ## Build package
 	uv build
 
-docs:  ## Generate documentation
-	@echo "Documentation would be generated here"
-
 pre-commit:  ## Run pre-commit hooks on all files
 	uv run pre-commit run --all-files
 
-ci-docker:  ## Run CI in Docker (local testing)
-	docker run --rm -v $(PWD):/workspace -w /workspace ghcr.io/astral-sh/uv:python3.11-bookworm bash -c "\
-		uv sync --all-extras && \
-		uv run ruff check . && \
-		uv run mypy devclean/ && \
-		uv run pytest -v"
-
-check-all: lint type-check security test  ## Run all checks
+check-all: lint type-check docstring-check security test  ## Run all checks
 
 release-check:  ## Check if ready for release
 	@echo "Checking if ready for release..."

@@ -68,6 +68,7 @@ class TestDryRun:
 
         assert result.exit_code == 0
         assert "nothing was deleted" in result.stdout
+        mock_scan.assert_called_once_with(None, False, False, False, True, False)
         mock_delete.assert_not_called()
 
     @patch("devclean.cli._delete")
@@ -147,10 +148,38 @@ class TestScanIsReadOnly:
         mock_delete.assert_not_called()
 
     @patch("devclean.cli._run_scan")
+    def test_scan_reports_stage_errors(self, mock_scan):
+        mock_scan.return_value = ScanResult(errors=["Error scanning node_modules: boom"])
+
+        result = runner.invoke(app, ["scan"])
+
+        assert result.exit_code == 0
+        assert "Error scanning node_modules: boom" in result.stdout
+
+    @patch("devclean.cli._run_scan")
+    def test_plan_reports_stage_errors(self, mock_scan):
+        """A failed stage must not leave `plan` looking like a clean bill of health."""
+        mock_scan.return_value = ScanResult(errors=["Error scanning node_modules: boom"])
+
+        result = runner.invoke(app, ["plan"])
+
+        assert result.exit_code == 0
+        assert "Error scanning node_modules: boom" in result.stdout
+
+    @patch("devclean.cli._run_scan")
     def test_temp_scan_can_be_disabled(self, mock_scan):
         mock_scan.return_value = ScanResult()
 
         result = runner.invoke(app, ["scan", "--no-temp"])
 
         assert result.exit_code == 0
-        mock_scan.assert_called_once_with(None, False, False, False, True)
+        mock_scan.assert_called_once_with(None, False, False, False, False, True)
+
+    @patch("devclean.cli._run_scan")
+    def test_system_scan_can_be_disabled(self, mock_scan):
+        mock_scan.return_value = ScanResult()
+
+        result = runner.invoke(app, ["scan", "--no-system"])
+
+        assert result.exit_code == 0
+        mock_scan.assert_called_once_with(None, False, False, False, True, False)

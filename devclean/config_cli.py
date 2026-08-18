@@ -3,16 +3,12 @@
 import os
 import subprocess
 from pathlib import Path
-from typing import Optional
 
 import typer
 from rich.console import Console
-from rich.panel import Panel
-from rich.syntax import Syntax
 from rich.table import Table
 
 from .settings import (
-    DevCleanConfig,
     create_sample_config,
     get_config_path,
     load_config,
@@ -83,24 +79,14 @@ def show(
         table.add_row("Include venvs", "✓" if config.scan.include_venvs else "✗")
         table.add_row("Include node_modules", "✓" if config.scan.include_node_modules else "✗")
         table.add_row(
+            "Inspect system artifacts",
+            "✓" if config.scan.include_system_artifacts else "✗",
+        )
+        table.add_row(
             "Include temporary directories", "✓" if config.scan.include_temporary_dirs else "✗"
         )
         table.add_row("Timeout", f"{config.scan.timeout_seconds} seconds")
         table.add_row("Max depth", str(config.scan.max_depth))
-        table.add_row("Parallel workers", str(config.scan.parallel_workers))
-
-        console.print(table)
-        console.print()
-
-        # Display settings
-        table = Table(title="Display Settings", show_header=False)
-        table.add_column("Setting", style="cyan")
-        table.add_column("Value")
-
-        table.add_row("Show progress", "✓" if config.display.show_progress else "✗")
-        table.add_row("Color output", "✓" if config.display.color_output else "✗")
-        table.add_row("Table format", config.display.table_format)
-        table.add_row("Size units", config.display.size_units)
 
         console.print(table)
         console.print()
@@ -110,12 +96,7 @@ def show(
         table.add_column("Setting", style="cyan")
         table.add_column("Value")
 
-        table.add_row("Require confirmation", "✓" if config.safety.require_confirmation else "✗")
         table.add_row("Protected paths", f"{len(config.safety.protected_paths)} paths")
-        table.add_row(
-            "Never delete patterns", f"{len(config.safety.never_delete_patterns)} patterns"
-        )
-        table.add_row("Always safe patterns", f"{len(config.safety.always_safe_patterns)} patterns")
 
         console.print(table)
 
@@ -190,31 +171,6 @@ def add_protected(
         raise typer.Exit(1)
 
 
-@config_app.command("add-safe")
-def add_safe(
-    pattern: str = typer.Argument(..., help="Pattern to add to always safe patterns"),
-    config_file: Path | None = typer.Option(None, "--config", "-c", help="Path to config file"),
-) -> None:
-    """Add a pattern to the always safe patterns list."""
-    try:
-        config = load_config(config_file)
-        config_path = config_file or get_config_path()
-
-        if pattern in config.safety.always_safe_patterns:
-            console.print(f"[yellow]Pattern already marked as safe: {pattern}[/yellow]")
-            return
-
-        config.safety.always_safe_patterns.append(pattern)
-        save_config(config, config_path)
-
-        console.print(f"[green]✓ Added safe pattern: {pattern}[/green]")
-        console.print(f"[dim]Updated config: {config_path}[/dim]")
-
-    except Exception as e:
-        console.print(f"[red]Error updating config: {e}[/red]")
-        raise typer.Exit(1)
-
-
 @config_app.command("remove-protected")
 def remove_protected(
     path: str = typer.Argument(..., help="Path to remove from protected paths"),
@@ -243,72 +199,6 @@ def remove_protected(
         raise typer.Exit(1)
 
 
-@config_app.command("remove-safe")
-def remove_safe(
-    pattern: str = typer.Argument(..., help="Pattern to remove from always safe patterns"),
-    config_file: Path | None = typer.Option(None, "--config", "-c", help="Path to config file"),
-) -> None:
-    """Remove a pattern from the always safe patterns list."""
-    try:
-        config = load_config(config_file)
-        config_path = config_file or get_config_path()
-
-        if pattern not in config.safety.always_safe_patterns:
-            console.print(f"[yellow]Pattern not in safe patterns: {pattern}[/yellow]")
-            return
-
-        config.safety.always_safe_patterns.remove(pattern)
-        save_config(config, config_path)
-
-        console.print(f"[green]✓ Removed safe pattern: {pattern}[/green]")
-        console.print(f"[dim]Updated config: {config_path}[/dim]")
-
-    except Exception as e:
-        console.print(f"[red]Error updating config: {e}[/red]")
-        raise typer.Exit(1)
-
-
-@config_app.command("list-patterns")
-def list_patterns(
-    config_file: Path | None = typer.Option(None, "--config", "-c", help="Path to config file"),
-) -> None:
-    """List all configured patterns and paths."""
-    try:
-        config = load_config(config_file)
-
-        # Protected paths
-        if config.safety.protected_paths:
-            table = Table(title="Protected Paths", show_header=False)
-            table.add_column("Path", style="red")
-            for path in config.safety.protected_paths:
-                table.add_row(path)
-            console.print(table)
-            console.print()
-
-        # Safe patterns
-        if config.safety.always_safe_patterns:
-            table = Table(title="Always Safe Patterns", show_header=False)
-            table.add_column("Pattern", style="green")
-            for pattern in config.safety.always_safe_patterns:
-                table.add_row(pattern)
-            console.print(table)
-            console.print()
-
-        # Never delete patterns
-        if config.safety.never_delete_patterns:
-            table = Table(title="Never Delete Patterns", show_header=False)
-            table.add_column("Pattern", style="yellow")
-            for pattern in config.safety.never_delete_patterns:
-                table.add_row(pattern)
-            console.print(table)
-        else:
-            console.print("[dim]No patterns configured[/dim]")
-
-    except Exception as e:
-        console.print(f"[red]Error loading config: {e}[/red]")
-        raise typer.Exit(1)
-
-
 @config_app.command()
 def validate(
     config_file: Path | None = typer.Option(None, "--config", "-c", help="Path to config file"),
@@ -331,9 +221,6 @@ def validate(
         # Check for reasonable values
         if config.scan.min_size_mb < 1:
             issues.append("min_size_mb should be at least 1 MB")
-
-        if config.scan.parallel_workers < 1 or config.scan.parallel_workers > 16:
-            issues.append("parallel_workers should be between 1 and 16")
 
         if issues:
             console.print()
