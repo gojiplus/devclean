@@ -74,7 +74,9 @@ class TestScanResult:
 
     def test_totals_and_partitioning(self):
         safe = make_candidate(path=Path("/tmp/a"), size_bytes=1024**3, tier=Tier.AUTO)
-        risky = make_candidate(path=Path("/tmp/b"), size_bytes=2 * 1024**3, tier=Tier.INSPECT)
+        risky = make_candidate(
+            path=Path("/tmp/b"), size_bytes=2 * 1024**3, tier=Tier.INSPECT
+        )
         result = ScanResult(candidates=[safe, risky])
 
         assert result.total_bytes == 3 * 1024**3
@@ -199,7 +201,9 @@ class TestGetDirSizes:
 
 
 class TestProjectInventory:
-    def test_configured_roots_are_used_and_nested_roots_are_collapsed(self, tmp_path, monkeypatch):
+    def test_configured_roots_are_used_and_nested_roots_are_collapsed(
+        self, tmp_path, monkeypatch
+    ):
         home = tmp_path / "home"
         projects = home / "projects"
         nested = projects / "nested"
@@ -217,7 +221,9 @@ class TestProjectInventory:
         assert set(roots) == {projects, extra, home_extra}
         assert nested not in roots
 
-    def test_one_walk_finds_project_and_home_level_dependencies(self, tmp_path, monkeypatch):
+    def test_one_walk_finds_project_and_home_level_dependencies(
+        self, tmp_path, monkeypatch
+    ):
         home = tmp_path / "home"
         project_root = home / "projects"
         project_venv = project_root / "one" / ".venv"
@@ -236,7 +242,9 @@ class TestProjectInventory:
         assert set(inventory.paths_named("node_modules")) == {extra_node, home_node}
 
     @patch("devclean.scanner._find_named_dirs", return_value=[])
-    def test_each_non_overlapping_root_is_walked_once(self, mock_find, tmp_path, monkeypatch):
+    def test_each_non_overlapping_root_is_walked_once(
+        self, mock_find, tmp_path, monkeypatch
+    ):
         home = tmp_path / "home"
         projects = home / "projects"
         nested = projects / "nested"
@@ -248,14 +256,18 @@ class TestProjectInventory:
         mock_find.assert_called_once()
 
     @patch("devclean.scanner.get_dir_size", return_value=100 * 1024 * 1024)
-    def test_home_level_directories_are_reported_with_safety_probes(self, _mock_size, tmp_path):
+    def test_home_level_directories_are_reported_with_safety_probes(
+        self, _mock_size, tmp_path
+    ):
         home = tmp_path / "home"
         venv = home / "custom-env"
         node_modules = home / "node_modules"
         venv.mkdir(parents=True)
         node_modules.mkdir()
         (venv / "pyvenv.cfg").touch()
-        inventory = ProjectInventory(by_name={"node_modules": [node_modules]}, virtualenvs=[venv])
+        inventory = ProjectInventory(
+            by_name={"node_modules": [node_modules]}, virtualenvs=[venv]
+        )
 
         venv_result = find_venvs(home, inventory=inventory)
         node_result = find_node_modules(home, inventory=inventory)
@@ -335,7 +347,9 @@ class TestScanAll:
         (project / "pyproject.toml").touch()
         mock_sizes.return_value = {project: 200 * 1024**2}
         monkeypatch.setattr("devclean.scanner.VENV_SEARCH_DIRS", ())
-        monkeypatch.setattr("devclean.scanner.temporary_roots", lambda: [temporary_root])
+        monkeypatch.setattr(
+            "devclean.scanner.temporary_roots", lambda: [temporary_root]
+        )
 
         result = scan_all(
             home,
@@ -345,7 +359,9 @@ class TestScanAll:
             min_size_mb=0,
         )
 
-        assert [(candidate.path, candidate.tier) for candidate in result.candidates] == [
+        assert [
+            (candidate.path, candidate.tier) for candidate in result.candidates
+        ] == [
             (project, Tier.INSPECT),
             (environment, Tier.VERIFIED),
         ]
@@ -377,7 +393,9 @@ class TestScanKnownCruft:
     def test_colima_vm_is_never_bulk_deletable(self):
         from devclean.config import CRUFT_PATTERNS
 
-        pattern = next(item for item in CRUFT_PATTERNS if item.path_template.endswith(".colima"))
+        pattern = next(
+            item for item in CRUFT_PATTERNS if item.path_template.endswith(".colima")
+        )
 
         assert pattern.safe is False
         assert "volumes are not restored" in pattern.recovery
@@ -435,7 +453,9 @@ class TestScanKnownCruft:
 
     @patch("devclean.scanner.get_dir_size")
     @patch("devclean.scanner.check_command_exists")
-    def test_per_pattern_floor_can_lower_the_global_one(self, mock_check_cmd, mock_get_size):
+    def test_per_pattern_floor_can_lower_the_global_one(
+        self, mock_check_cmd, mock_get_size
+    ):
         """The old code took max(pattern, global), so a pattern floor could only
         ever raise the bar and small-but-numerous categories stayed invisible."""
         from devclean.config import CruftPattern
@@ -474,7 +494,9 @@ class TestScanKnownCruft:
 
 class TestFindTemporaryDirs:
     @patch("devclean.scanner._get_dir_sizes")
-    def test_reports_only_direct_user_owned_directories_as_inspect(self, mock_sizes, tmp_path):
+    def test_reports_only_direct_user_owned_directories_as_inspect(
+        self, mock_sizes, tmp_path
+    ):
         candidate_dir = tmp_path / "large-build"
         candidate_dir.mkdir()
         (candidate_dir / "nested").mkdir()

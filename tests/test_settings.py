@@ -1,6 +1,11 @@
 """Tests for user configuration."""
 
-from devclean.settings import DevCleanConfig, create_sample_config, load_config, save_config
+from devclean.settings import (
+    DevCleanConfig,
+    create_sample_config,
+    load_config,
+    save_config,
+)
 
 
 def test_loads_temporary_directory_scan_setting(tmp_path):

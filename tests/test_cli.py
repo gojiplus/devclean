@@ -103,7 +103,9 @@ class TestTierExecution:
     @patch("devclean.cli._run_scan")
     def test_rollup_candidates_are_skipped(self, mock_scan, mock_delete):
         """Roll-ups carry a category name, not a real path, and must not be rm -rf'd."""
-        rollup = candidate(path=Path("__pycache__"), member_count=7142, tier=Tier.VERIFIED)
+        rollup = candidate(
+            path=Path("__pycache__"), member_count=7142, tier=Tier.VERIFIED
+        )
         mock_scan.return_value = ScanResult(candidates=[rollup])
 
         result = runner.invoke(app, ["clean", "--tier", "verified", "--force"])
@@ -149,7 +151,9 @@ class TestScanIsReadOnly:
 
     @patch("devclean.cli._run_scan")
     def test_scan_reports_stage_errors(self, mock_scan):
-        mock_scan.return_value = ScanResult(errors=["Error scanning node_modules: boom"])
+        mock_scan.return_value = ScanResult(
+            errors=["Error scanning node_modules: boom"]
+        )
 
         result = runner.invoke(app, ["scan"])
 
@@ -159,7 +163,9 @@ class TestScanIsReadOnly:
     @patch("devclean.cli._run_scan")
     def test_plan_reports_stage_errors(self, mock_scan):
         """A failed stage must not leave `plan` looking like a clean bill of health."""
-        mock_scan.return_value = ScanResult(errors=["Error scanning node_modules: boom"])
+        mock_scan.return_value = ScanResult(
+            errors=["Error scanning node_modules: boom"]
+        )
 
         result = runner.invoke(app, ["plan"])
 

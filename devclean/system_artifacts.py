@@ -12,7 +12,7 @@ import re
 import shutil
 import subprocess
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from .candidates import Candidate, Tier
@@ -31,7 +31,7 @@ class SystemPaths:
     usr_local: Path = Path("/usr/local")
     library: Path = Path("/Library")
     opt: Path = Path("/opt")
-    home: Path = Path.home()
+    home: Path = field(default_factory=Path.home)
     temp_roots: tuple[Path, ...] = ()
 
     @classmethod
@@ -53,7 +53,7 @@ def _candidate(
 ) -> Candidate | None:
     try:
         size = get_size(path)
-    except Exception:  # noqa: BLE001 - an unreadable system path is not fatal
+    except Exception:
         return None
     if size is None or size < min_size_mb * 1024 * 1024:
         return None
@@ -95,7 +95,9 @@ def _version_directories(parent: Path) -> list[Path]:
         return []
 
 
-def _find_old_tex(paths: SystemPaths, get_size: SizeGetter, min_size_mb: int) -> list[Candidate]:
+def _find_old_tex(
+    paths: SystemPaths, get_size: SizeGetter, min_size_mb: int
+) -> list[Candidate]:
     tex_root = paths.usr_local / "texlive"
     active_link = paths.library / "TeX/Distributions/.DefaultTeX/Contents/Root"
     active = _resolved(active_link)
@@ -115,14 +117,18 @@ def _find_old_tex(paths: SystemPaths, get_size: SizeGetter, min_size_mb: int) ->
             description=f"non-default TeX Live distribution {version.name}",
             recovery="Reinstall this release from the MacTeX archive",
             evidence=evidence,
-            concerns=["an older TeX release may be retained intentionally for reproducibility"],
+            concerns=[
+                "an older TeX release may be retained intentionally for reproducibility"
+            ],
         )
         if candidate:
             candidates.append(candidate)
     return candidates
 
 
-def _find_old_r(paths: SystemPaths, get_size: SizeGetter, min_size_mb: int) -> list[Candidate]:
+def _find_old_r(
+    paths: SystemPaths, get_size: SizeGetter, min_size_mb: int
+) -> list[Candidate]:
     versions = paths.library / "Frameworks/R.framework/Versions"
     active = _resolved(versions / "Current")
     candidates: list[Candidate] = []
@@ -130,7 +136,9 @@ def _find_old_r(paths: SystemPaths, get_size: SizeGetter, min_size_mb: int) -> l
         resolved = _resolved(version) or version
         if active is not None and resolved == active:
             continue
-        evidence = [f"R.framework/Versions/Current resolves to {active}"] if active else []
+        evidence = (
+            [f"R.framework/Versions/Current resolves to {active}"] if active else []
+        )
         candidate = _candidate(
             version,
             get_size,
@@ -139,7 +147,9 @@ def _find_old_r(paths: SystemPaths, get_size: SizeGetter, min_size_mb: int) -> l
             description=f"non-current R framework {version.name}",
             recovery="Reinstall the matching CRAN macOS package",
             evidence=evidence,
-            concerns=["an older R release may be retained intentionally for reproducibility"],
+            concerns=[
+                "an older R release may be retained intentionally for reproducibility"
+            ],
         )
         if candidate:
             candidates.append(candidate)
@@ -166,7 +176,9 @@ def _find_inactive_python_frameworks(
             description=f"inactive python.org framework {version.name}",
             recovery="Reinstall the matching python.org macOS package",
             evidence=evidence,
-            concerns=["scripts outside the shell PATH may still reference this framework"],
+            concerns=[
+                "scripts outside the shell PATH may still reference this framework"
+            ],
         )
         if candidate:
             candidates.append(candidate)
@@ -230,8 +242,12 @@ def _find_retained_mactex_installers(
             category="tex",
             description="retained MacTeX installer package",
             recovery="Re-download the MacTeX cask installer",
-            evidence=["package installer remains in Homebrew's Caskroom after installation"],
-            concerns=["removing a current cask artifact may affect a later Homebrew uninstall"],
+            evidence=[
+                "package installer remains in Homebrew's Caskroom after installation"
+            ],
+            concerns=[
+                "removing a current cask artifact may affect a later Homebrew uninstall"
+            ],
         )
         if candidate:
             candidates.append(candidate)
@@ -275,7 +291,9 @@ def _find_broken_macports(
         description="broken MacPorts installation",
         recovery="Reinstall MacPorts and the requested ports",
         evidence=evidence,
-        concerns=["the prefix may contain configuration or files installed outside MacPorts"],
+        concerns=[
+            "the prefix may contain configuration or files installed outside MacPorts"
+        ],
     )
     return [candidate] if candidate else []
 
@@ -351,7 +369,7 @@ def _find_obsolete_vscode_extensions(
             continue
         try:
             size = get_size(path)
-        except Exception:  # noqa: BLE001 - an unreadable extension is not fatal
+        except Exception:
             continue
         if size is not None:
             measured.append((path, size))
@@ -370,7 +388,9 @@ def _find_obsolete_vscode_extensions(
                 tier=Tier.INSPECT,
                 recovery="Reinstall the extension version from the VS Code Marketplace",
                 evidence=["VS Code lists this exact extension directory in .obsolete"],
-                concerns=["confirm no running VS Code process is still using this version"],
+                concerns=[
+                    "confirm no running VS Code process is still using this version"
+                ],
             )
         )
     return candidates

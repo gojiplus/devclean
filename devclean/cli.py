@@ -112,12 +112,20 @@ def _render(result: ScanResult) -> None:
 
 @app.command()
 def scan(
-    min_size: int | None = typer.Option(None, "--min-size", "-m", help="Global size floor in MB"),
+    min_size: int | None = typer.Option(
+        None, "--min-size", "-m", help="Global size floor in MB"
+    ),
     no_venvs: bool = typer.Option(False, "--no-venvs", help="Skip virtualenv scan"),
     no_node: bool = typer.Option(False, "--no-node", help="Skip node_modules scan"),
-    no_project: bool = typer.Option(False, "--no-project", help="Skip project-local scan"),
-    no_system: bool = typer.Option(False, "--no-system", help="Skip system toolchain scan"),
-    no_temp: bool = typer.Option(False, "--no-temp", help="Skip temporary-directory scan"),
+    no_project: bool = typer.Option(
+        False, "--no-project", help="Skip project-local scan"
+    ),
+    no_system: bool = typer.Option(
+        False, "--no-system", help="Skip system toolchain scan"
+    ),
+    no_temp: bool = typer.Option(
+        False, "--no-temp", help="Skip temporary-directory scan"
+    ),
     as_json: bool = typer.Option(False, "--json", help="Emit JSON instead of a table"),
 ) -> None:
     """Scan for cruft. Read-only — never deletes anything."""
@@ -142,12 +150,20 @@ def scan(
 
 @app.command()
 def plan(
-    min_size: int | None = typer.Option(None, "--min-size", "-m", help="Global size floor in MB"),
+    min_size: int | None = typer.Option(
+        None, "--min-size", "-m", help="Global size floor in MB"
+    ),
     no_venvs: bool = typer.Option(False, "--no-venvs", help="Skip virtualenv scan"),
     no_node: bool = typer.Option(False, "--no-node", help="Skip node_modules scan"),
-    no_project: bool = typer.Option(False, "--no-project", help="Skip project-local scan"),
-    no_system: bool = typer.Option(False, "--no-system", help="Skip system toolchain scan"),
-    no_temp: bool = typer.Option(False, "--no-temp", help="Skip temporary-directory scan"),
+    no_project: bool = typer.Option(
+        False, "--no-project", help="Skip project-local scan"
+    ),
+    no_system: bool = typer.Option(
+        False, "--no-system", help="Skip system toolchain scan"
+    ),
+    no_temp: bool = typer.Option(
+        False, "--no-temp", help="Skip temporary-directory scan"
+    ),
 ) -> None:
     """Show what a cleanup would do, grouped by tier. Deletes nothing."""
     result = _run_scan(min_size, no_venvs, no_node, no_project, no_system, no_temp)
@@ -158,11 +174,16 @@ def plan(
             continue
 
         total = _human(sum(c.size_bytes for c in group))
-        deletable = "bulk-deletable" if tier in BULK_DELETABLE else "needs your decision"
-        console.print(f"\n[bold][{TIER_STYLE[tier]}]{tier.value}[/] — {total} ({deletable})[/bold]")
+        deletable = (
+            "bulk-deletable" if tier in BULK_DELETABLE else "needs your decision"
+        )
+        console.print(
+            f"\n[bold][{TIER_STYLE[tier]}]{tier.value}[/] — {total} ({deletable})[/bold]"
+        )
 
         for candidate in group:
-            suffix = f" ×{candidate.member_count}" if candidate.member_count > 1 else ""
+            multiplier = f" ×{candidate.member_count}"  # noqa: RUF001 - display glyph
+            suffix = multiplier if candidate.member_count > 1 else ""
             console.print(f"  {candidate.size_human:>9}  {candidate.path}{suffix}")
             console.print(f"             [dim]back via: {candidate.recovery}[/dim]")
             for concern in candidate.concerns:
@@ -187,11 +208,17 @@ def _delete(path: Path, use_sudo: bool = False) -> None:
 @app.command()
 def clean(
     path: str = typer.Argument(None, help="A single path to delete"),
-    tier: str = typer.Option(None, "--tier", help="Delete a whole tier: auto or verified"),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Show what would happen, delete nothing"),
+    tier: str = typer.Option(
+        None, "--tier", help="Delete a whole tier: auto or verified"
+    ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Show what would happen, delete nothing"
+    ),
     force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation"),
     use_sudo: bool = typer.Option(False, "--sudo", "-s", help="Use sudo to delete"),
-    min_size: int | None = typer.Option(None, "--min-size", "-m", help="Global size floor in MB"),
+    min_size: int | None = typer.Option(
+        None, "--min-size", "-m", help="Global size floor in MB"
+    ),
 ) -> None:
     """Delete a single path, or a whole tier with --tier.
 
@@ -215,7 +242,9 @@ def clean(
 
     target = sanitize_path(path)
     try:
-        assert_safe_to_delete(target, config.safety.protected_paths, require_depth=False)
+        assert_safe_to_delete(
+            target, config.safety.protected_paths, require_depth=False
+        )
     except DevCleanError as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(1) from exc
@@ -283,7 +312,9 @@ def _clean_tier(
         # Roll-ups carry a category name rather than a real path; they are
         # reported for visibility and cleaned by their own tooling.
         if not candidate.path.is_absolute():
-            console.print(f"[dim]skipping roll-up {candidate.path} — clean these per project[/dim]")
+            console.print(
+                f"[dim]skipping roll-up {candidate.path} — clean these per project[/dim]"
+            )
             continue
         try:
             assert_safe_to_delete(candidate.path, config.safety.protected_paths)

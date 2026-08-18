@@ -25,7 +25,9 @@ console = Console()
 
 @config_app.command()
 def init(
-    force: bool = typer.Option(False, "--force", "-f", help="Overwrite existing config"),
+    force: bool = typer.Option(
+        False, "--force", "-f", help="Overwrite existing config"
+    ),
     global_config: bool = typer.Option(
         False, "--global", "-g", help="Create global config in home directory"
     ),
@@ -58,7 +60,9 @@ def init(
 
 @config_app.command()
 def show(
-    config_file: Path | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    config_file: Path | None = typer.Option(
+        None, "--config", "-c", help="Path to config file"
+    ),
 ) -> None:
     """Display current configuration."""
     try:
@@ -77,13 +81,16 @@ def show(
 
         table.add_row("Minimum size", f"{config.scan.min_size_mb} MB")
         table.add_row("Include venvs", "✓" if config.scan.include_venvs else "✗")
-        table.add_row("Include node_modules", "✓" if config.scan.include_node_modules else "✗")
+        table.add_row(
+            "Include node_modules", "✓" if config.scan.include_node_modules else "✗"
+        )
         table.add_row(
             "Inspect system artifacts",
             "✓" if config.scan.include_system_artifacts else "✗",
         )
         table.add_row(
-            "Include temporary directories", "✓" if config.scan.include_temporary_dirs else "✗"
+            "Include temporary directories",
+            "✓" if config.scan.include_temporary_dirs else "✗",
         )
         table.add_row("Timeout", f"{config.scan.timeout_seconds} seconds")
         table.add_row("Max depth", str(config.scan.max_depth))
@@ -115,7 +122,9 @@ def show(
 
 @config_app.command()
 def edit(
-    config_file: Path | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    config_file: Path | None = typer.Option(
+        None, "--config", "-c", help="Path to config file"
+    ),
 ) -> None:
     """Open configuration file in $EDITOR."""
     config_path = config_file or get_config_path()
@@ -135,18 +144,24 @@ def edit(
         console.print("[green]✓ Config file updated[/green]")
     except subprocess.CalledProcessError:
         console.print(f"[red]Error opening editor: {editor}[/red]")
-        console.print(f"Set EDITOR environment variable or edit manually: {config_path}")
+        console.print(
+            f"Set EDITOR environment variable or edit manually: {config_path}"
+        )
         raise typer.Exit(1)
     except FileNotFoundError:
         console.print(f"[red]Editor not found: {editor}[/red]")
-        console.print(f"Set EDITOR environment variable or edit manually: {config_path}")
+        console.print(
+            f"Set EDITOR environment variable or edit manually: {config_path}"
+        )
         raise typer.Exit(1)
 
 
 @config_app.command("add-protected")
 def add_protected(
     path: str = typer.Argument(..., help="Path to add to protected paths"),
-    config_file: Path | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    config_file: Path | None = typer.Option(
+        None, "--config", "-c", help="Path to config file"
+    ),
 ) -> None:
     """Add a path to the protected paths list."""
     try:
@@ -174,7 +189,9 @@ def add_protected(
 @config_app.command("remove-protected")
 def remove_protected(
     path: str = typer.Argument(..., help="Path to remove from protected paths"),
-    config_file: Path | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    config_file: Path | None = typer.Option(
+        None, "--config", "-c", help="Path to config file"
+    ),
 ) -> None:
     """Remove a path from the protected paths list."""
     try:
@@ -185,7 +202,9 @@ def remove_protected(
         target_path = str(Path(path).expanduser().resolve())
 
         if target_path not in config.safety.protected_paths:
-            console.print(f"[yellow]Path not in protected paths: {target_path}[/yellow]")
+            console.print(
+                f"[yellow]Path not in protected paths: {target_path}[/yellow]"
+            )
             return
 
         config.safety.protected_paths.remove(target_path)
@@ -201,7 +220,9 @@ def remove_protected(
 
 @config_app.command()
 def validate(
-    config_file: Path | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    config_file: Path | None = typer.Option(
+        None, "--config", "-c", help="Path to config file"
+    ),
 ) -> None:
     """Validate configuration file."""
     try:

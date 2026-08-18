@@ -64,7 +64,9 @@ class TestAssertSafeToDelete:
         fake_home.mkdir()
         outside.mkdir(parents=True)
         monkeypatch.setattr(Path, "home", classmethod(lambda cls: fake_home))
-        monkeypatch.setattr("devclean.safety.temporary_roots", lambda: [tmp_path / "elsewhere"])
+        monkeypatch.setattr(
+            "devclean.safety.temporary_roots", lambda: [tmp_path / "elsewhere"]
+        )
 
         with pytest.raises(UnsafePathError, match="outside your home"):
             assert_safe_to_delete(outside)

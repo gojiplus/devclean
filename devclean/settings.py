@@ -108,14 +108,18 @@ def load_config(config_path: Path | None = None) -> DevCleanConfig:
                 include_temporary_dirs=scan_data.get(
                     "include_temporary_dirs", config.scan.include_temporary_dirs
                 ),
-                timeout_seconds=scan_data.get("timeout_seconds", config.scan.timeout_seconds),
+                timeout_seconds=scan_data.get(
+                    "timeout_seconds", config.scan.timeout_seconds
+                ),
                 max_depth=scan_data.get("max_depth", config.scan.max_depth),
             )
 
         if "safety" in data:
             safety_data = data["safety"]
             config.safety = SafetySettings(
-                protected_paths=safety_data.get("protected_paths", config.safety.protected_paths),
+                protected_paths=safety_data.get(
+                    "protected_paths", config.safety.protected_paths
+                ),
             )
 
         # Top-level settings
@@ -126,7 +130,9 @@ def load_config(config_path: Path | None = None) -> DevCleanConfig:
         return config
 
     except Exception as e:
-        raise ConfigurationError(f"Failed to load config from {config_path}: {e}") from e
+        raise ConfigurationError(
+            f"Failed to load config from {config_path}: {e}"
+        ) from e
 
 
 def save_config(config: DevCleanConfig, config_path: Path | None = None) -> None:
@@ -229,4 +235,6 @@ protected_paths = [
         with open(config_path, "w", encoding="utf-8") as f:
             f.write(sample_content)
     except Exception as e:
-        raise ConfigurationError(f"Failed to create sample config at {config_path}: {e}") from e
+        raise ConfigurationError(
+            f"Failed to create sample config at {config_path}: {e}"
+        ) from e

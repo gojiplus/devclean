@@ -36,8 +36,12 @@ def test_detects_stale_toolchains_and_retained_artifacts(tmp_path):
     installer.parent.mkdir(parents=True)
     installer.touch()
     macports = _mkdir(opt / "local")
-    chrome_clone = _mkdir(tmp_path / "X/com.google.Chrome.code_sign_clone/code_sign_clone.stale")
-    obsolete_extension = _mkdir(tmp_path / "home/.vscode/extensions/example.extension-1.0.0")
+    chrome_clone = _mkdir(
+        tmp_path / "X/com.google.Chrome.code_sign_clone/code_sign_clone.stale"
+    )
+    obsolete_extension = _mkdir(
+        tmp_path / "home/.vscode/extensions/example.extension-1.0.0"
+    )
     (obsolete_extension.parent / ".obsolete").write_text(
         json.dumps({obsolete_extension.name: True, "missing.extension-1.0.0": True}),
         encoding="utf-8",
@@ -76,7 +80,9 @@ def test_detects_stale_toolchains_and_retained_artifacts(tmp_path):
 
 def test_chrome_clone_in_use_is_explicitly_blocked(tmp_path):
     temp = _mkdir(tmp_path / "T")
-    clone = _mkdir(tmp_path / "X/com.google.Chrome.code_sign_clone/code_sign_clone.live")
+    clone = _mkdir(
+        tmp_path / "X/com.google.Chrome.code_sign_clone/code_sign_clone.live"
+    )
     layout = SystemPaths(
         usr_local=tmp_path / "usr-local",
         library=tmp_path / "Library",
@@ -116,6 +122,8 @@ def test_small_obsolete_extensions_are_reported_when_large_together(tmp_path):
         home=tmp_path / "home",
     )
 
-    result = find_system_artifacts(lambda _path: 60 * 1024 * 1024, min_size_mb=100, paths=layout)
+    result = find_system_artifacts(
+        lambda _path: 60 * 1024 * 1024, min_size_mb=100, paths=layout
+    )
 
     assert {candidate.path for candidate in result} == {first, second}

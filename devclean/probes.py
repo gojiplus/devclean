@@ -67,7 +67,9 @@ def _wheel_conforms(stem: str) -> bool:
     parts = stem.split("-")
     if len(parts) < 5:
         return False
-    return _looks_like_version(parts[-4]) or (len(parts) >= 6 and _looks_like_version(parts[-5]))
+    return _looks_like_version(parts[-4]) or (
+        len(parts) >= 6 and _looks_like_version(parts[-5])
+    )
 
 
 def probe_dist_dir(path: Path) -> list[str]:
@@ -160,7 +162,9 @@ def find_manifest(project_dir: Path) -> str | None:
     return None
 
 
-def recovery_evidence(path: Path, project_dir: Path | None = None) -> tuple[list[str], list[str]]:
+def recovery_evidence(
+    path: Path, project_dir: Path | None = None
+) -> tuple[list[str], list[str]]:
     """Collect cross-cutting evidence and concerns about recoverability.
 
     Two facts matter regardless of category: whether git holds a copy, and

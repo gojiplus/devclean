@@ -41,7 +41,7 @@ class TestProbeDistDir(unittest.TestCase):
             "lost_years-0.6.0-py3-none-any.whl",
             "ethnicolr-1.1.0.tar.gz",
         )
-        self.assertEqual(probe_dist_dir(self.dist), [])
+        assert probe_dist_dir(self.dist) == []
 
     def test_hyphenated_project_name_passes(self):
         # The version is the LAST hyphen segment, not the second.
@@ -49,15 +49,15 @@ class TestProbeDistDir(unittest.TestCase):
             "rank-preserving-calibration-0.1.0.tar.gz",
             "rank-preserving-calibration-0.1.0-py3-none-any.whl",
         )
-        self.assertEqual(probe_dist_dir(self.dist), [])
+        assert probe_dist_dir(self.dist) == []
 
     def test_pep440_dev_and_local_versions_pass(self):
         # Real filename from indicate/dist.
         self._touch("indicate-0.3.0.post54.dev0+f36e76b.tar.gz")
-        self.assertEqual(probe_dist_dir(self.dist), [])
+        assert probe_dist_dir(self.dist) == []
 
     def test_empty_dist_has_no_concerns(self):
-        self.assertEqual(probe_dist_dir(self.dist), [])
+        assert probe_dist_dir(self.dist) == []
 
     def test_dotfiles_are_ignored(self):
         """Every real dist/ carries a .gitignore, and macOS adds .DS_Store.
@@ -66,13 +66,13 @@ class TestProbeDistDir(unittest.TestCase):
         the reader to skip the concerns list entirely.
         """
         self._touch(".gitignore", ".DS_Store", "naampy-0.9.0.tar.gz")
-        self.assertEqual(probe_dist_dir(self.dist), [])
+        assert probe_dist_dir(self.dist) == []
 
     def test_dotfiles_do_not_mask_a_real_data_file(self):
         self._touch(".gitignore", "dataverse_hindi_source.tar.gz")
         concerns = probe_dist_dir(self.dist)
-        self.assertEqual(len(concerns), 1)
-        self.assertIn("dataverse_hindi_source.tar.gz", concerns[0])
+        assert len(concerns) == 1
+        assert "dataverse_hindi_source.tar.gz" in concerns[0]
 
     def test_pai_dist_shape_is_flagged(self):
         """The exact contents that a pyproject.toml guard would have deleted."""
@@ -88,8 +88,8 @@ class TestProbeDistDir(unittest.TestCase):
         concerns = probe_dist_dir(self.dist)
 
         joined = " ".join(concerns)
-        self.assertIn("_stage", joined)
-        self.assertIn("DATAVERSE_UPLOAD.md", joined)
+        assert "_stage" in joined
+        assert "DATAVERSE_UPLOAD.md" in joined
         # All four data tarballs must be called out, not just the first.
         for name in (
             "pai_2022-2023_html.tar.gz",
@@ -97,7 +97,7 @@ class TestProbeDistDir(unittest.TestCase):
             "pai_2022-2023_data.tar.gz",
             "pai_2023-2024_data.tar.gz",
         ):
-            self.assertIn(name, joined)
+            assert name in joined
 
     def test_year_like_segment_is_not_a_version(self):
         """`pai_2022-2023_html` ends in a digit-leading segment but is not a version.
@@ -106,7 +106,7 @@ class TestProbeDistDir(unittest.TestCase):
         the file. The PEP 440 check is what rejects the underscore.
         """
         self._touch("pai_2022-2023_html.tar.gz")
-        self.assertEqual(len(probe_dist_dir(self.dist)), 1)
+        assert len(probe_dist_dir(self.dist)) == 1
 
     def test_candidate_downgrades_to_inspect(self):
         """Concerns must actually move the candidate out of bulk deletion."""
@@ -119,12 +119,12 @@ class TestProbeDistDir(unittest.TestCase):
             tier=Tier.PROBE,
             recovery="python -m build",
         )
-        self.assertNotIn(Tier.PROBE, BULK_DELETABLE)
+        assert Tier.PROBE not in BULK_DELETABLE
 
         candidate.downgrade(*probe_dist_dir(self.dist))
 
-        self.assertEqual(candidate.tier, Tier.INSPECT)
-        self.assertFalse(candidate.bulk_deletable)
+        assert candidate.tier == Tier.INSPECT
+        assert not candidate.bulk_deletable
 
     def test_downgrade_is_monotonic(self):
         candidate = Candidate(
@@ -137,8 +137,8 @@ class TestProbeDistDir(unittest.TestCase):
         )
         candidate.downgrade("something odd")
         candidate.downgrade()  # no concerns must not restore the tier
-        self.assertEqual(candidate.tier, Tier.INSPECT)
-        self.assertFalse(candidate.bulk_deletable)
+        assert candidate.tier == Tier.INSPECT
+        assert not candidate.bulk_deletable
 
 
 class TestProbeVenv(unittest.TestCase):
@@ -155,7 +155,7 @@ class TestProbeVenv(unittest.TestCase):
         venv = self.root / ".venv"
         venv.mkdir()
         (venv / "pyvenv.cfg").touch()
-        self.assertEqual(probe_venv(venv), [])
+        assert probe_venv(venv) == []
 
     def test_next_env_package_is_rejected(self):
         """node_modules/@next/env matches the `env` name pattern but is a package.
@@ -169,8 +169,8 @@ class TestProbeVenv(unittest.TestCase):
 
         concerns = probe_venv(pkg)
 
-        self.assertEqual(len(concerns), 1)
-        self.assertIn("pyvenv.cfg", concerns[0])
+        assert len(concerns) == 1
+        assert "pyvenv.cfg" in concerns[0]
 
 
 class TestProbeNodeModules(unittest.TestCase):
@@ -185,12 +185,12 @@ class TestProbeNodeModules(unittest.TestCase):
         (self.root / "package.json").touch()
         nm = self.root / "node_modules"
         nm.mkdir()
-        self.assertEqual(probe_node_modules(nm), [])
+        assert probe_node_modules(nm) == []
 
     def test_orphan_node_modules_is_flagged(self):
         nm = self.root / "node_modules"
         nm.mkdir()
-        self.assertEqual(len(probe_node_modules(nm)), 1)
+        assert len(probe_node_modules(nm)) == 1
 
 
 class TestFindManifest(unittest.TestCase):
@@ -203,10 +203,10 @@ class TestFindManifest(unittest.TestCase):
 
     def test_finds_lockfile(self):
         (self.root / "uv.lock").touch()
-        self.assertEqual(find_manifest(self.root), "uv.lock")
+        assert find_manifest(self.root) == "uv.lock"
 
     def test_none_when_absent(self):
-        self.assertIsNone(find_manifest(self.root))
+        assert find_manifest(self.root) is None
 
 
 if __name__ == "__main__":

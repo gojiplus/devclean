@@ -7,6 +7,7 @@ disposable from a directory that merely has a suggestive name.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import subprocess
 from collections import defaultdict
@@ -62,7 +63,9 @@ class ScanResult:
     @property
     def total_bytes(self) -> int:
         """Bytes represented by candidates, without counting nested paths twice."""
-        relative_total = sum(c.size_bytes for c in self.candidates if not c.path.is_absolute())
+        relative_total = sum(
+            c.size_bytes for c in self.candidates if not c.path.is_absolute()
+        )
         sizes_by_path: dict[Path, int] = {}
         for candidate in self.candidates:
             if candidate.path.is_absolute():
@@ -325,7 +328,11 @@ def build_project_inventory(
             home_children = []
         for path in home_children:
             try:
-                if path.is_dir() and (path / "pyvenv.cfg").is_file() and path not in seen:
+                if (
+                    path.is_dir()
+                    and (path / "pyvenv.cfg").is_file()
+                    and path not in seen
+                ):
                     seen.add(path)
                     inventory.virtualenvs.append(path)
                 elif path.name == "node_modules" and path.is_dir() and path not in seen:
@@ -357,7 +364,9 @@ def scan_known_cruft(home: Path, min_size_mb: int = 100) -> list[Candidate]:
     return candidates
 
 
-def _scan_pattern(pattern: CruftPattern, home: Path, min_size_mb: int) -> Candidate | None:
+def _scan_pattern(
+    pattern: CruftPattern, home: Path, min_size_mb: int
+) -> Candidate | None:
     path = Path(pattern.path_template.format(home=home))
     if not path.exists():
         return None
@@ -738,7 +747,7 @@ def scan_all(
                 maxdepth=project_max_depth,
                 timeout=project_scan_timeout,
             )
-        except Exception as exc:  # noqa: BLE001 - preserve the non-project scans
+        except Exception as exc:
             result.errors.append(f"Error scanning project roots: {exc}")
             inventory = ProjectInventory()
 
@@ -753,7 +762,7 @@ def scan_all(
                     include_project_artifacts=False,
                 )
                 inventory.extend_dependencies(temporary_inventory)
-            except Exception as exc:  # noqa: BLE001 - preserve every other scan stage
+            except Exception as exc:
                 result.errors.append(f"Error scanning temporary dependencies: {exc}")
 
     stages: list[tuple[str, Callable[[], list[Candidate]]]] = [
@@ -794,19 +803,19 @@ def scan_all(
             )
         )
     if include_temporary_dirs:
-        stages.append(("temporary directories", lambda: find_temporary_dirs(min_size_mb)))
+        stages.append(
+            ("temporary directories", lambda: find_temporary_dirs(min_size_mb))
+        )
 
     try:
         for label, stage in stages:
             try:
                 result.candidates.extend(stage())
-            except Exception as e:  # noqa: BLE001 - one bad stage must not sink the scan
+            except Exception as e:
                 result.errors.append(f"Error scanning {label}: {e}")
         result.sort()
     finally:
-        try:
+        with contextlib.suppress(OSError):
             save_cache()
-        except OSError:
-            pass
 
     return result
