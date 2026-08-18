@@ -42,6 +42,8 @@ class TestAssertSafeToDelete:
             assert_safe_to_delete(Path("/"))
 
     def test_shared_temp_root_is_refused(self):
+        if not Path("/private/tmp").exists():
+            pytest.skip("no /private/tmp on this platform (CI wheel job runs on Linux)")
         with pytest.raises(UnsafePathError, match="protected"):
             assert_safe_to_delete(Path("/private/tmp"))
 
