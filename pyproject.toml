@@ -74,9 +74,13 @@ allow-init-docstring = true
 exclude = '\.venv|tests|docs'
 
 [tool.pytest.ini_options]
+minversion = "8"
+log_level = "INFO"
+xfail_strict = true
+filterwarnings = ["error"]
 testpaths = ["tests"]
 python_files = "test_*.py"
-addopts = "--cov=devclean --cov-report=term-missing"
+addopts = "-ra --strict-config --strict-markers --cov=devclean --cov-report=term-missing"
 
 [tool.ruff]
 line-length = 88
