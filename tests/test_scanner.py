@@ -311,6 +311,51 @@ class TestProjectInventory:
 
 
 class TestScanAll:
+    @pytest.mark.parametrize("min_size_mb", [75, 150])
+    def test_global_floor_filters_all_project_categories(
+        self, tmp_path, monkeypatch, min_size_mb
+    ):
+        home = tmp_path / "home"
+        home.mkdir()
+        project = tmp_path / "workspace" / "project"
+        project.mkdir(parents=True)
+        (project / "pyproject.toml").touch()
+        (project / "package.json").write_text("{}")
+        for name in (".venv", "node_modules", "__pycache__", "dist"):
+            (project / name).mkdir()
+        (project / ".venv" / "pyvenv.cfg").touch()
+        monkeypatch.setattr("devclean.scanner.VENV_SEARCH_DIRS", ())
+        monkeypatch.setattr("devclean.scanner.scan_known_cruft", lambda *_: [])
+        monkeypatch.setattr("devclean.cache.save_cache", lambda: None)
+        monkeypatch.setattr(
+            "devclean.scanner.get_dir_size", lambda *_args, **_kwargs: 100 * 1024**2
+        )
+        monkeypatch.setattr(
+            "devclean.scanner._get_dir_sizes_batched",
+            lambda paths, **_kwargs: dict.fromkeys(paths, 100 * 1024**2),
+        )
+
+        result = scan_all(
+            home,
+            additional_search_paths=[project.parent],
+            min_size_mb=min_size_mb,
+            include_system_artifacts=False,
+            include_temporary_dirs=False,
+        )
+
+        assert result.errors == []
+        expected = (
+            {
+                project / ".venv",
+                project / "node_modules",
+                project / "dist",
+                Path("__pycache__"),
+            }
+            if min_size_mb == 75
+            else set()
+        )
+        assert {candidate.path for candidate in result.candidates} == expected
+
     @patch("devclean.cache.save_cache")
     @patch("devclean.scanner.find_system_artifacts", return_value=[])
     @patch("devclean.scanner.find_probed_project_dirs", return_value=[])
@@ -347,12 +392,12 @@ class TestScanAll:
             tmp_path, [tmp_path / "extra"], maxdepth=9, timeout=42
         )
         assert mock_venvs.call_args.kwargs["inventory"] is inventory
-        assert mock_venvs.call_args.args == (tmp_path,)
+        assert mock_venvs.call_args.args == (tmp_path, 100)
         assert mock_node.call_args.kwargs["inventory"] is inventory
-        assert mock_node.call_args.args == (tmp_path,)
+        assert mock_node.call_args.args == (tmp_path, 100)
         assert mock_cruft.call_args.kwargs["inventory"] is inventory
         assert mock_build.call_args.kwargs["inventory"] is inventory
-        assert mock_build.call_args.args == (tmp_path,)
+        assert mock_build.call_args.args == (tmp_path, 100)
 
     @patch("devclean.cache.save_cache")
     @patch("devclean.scanner.find_system_artifacts", return_value=[])

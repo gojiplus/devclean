@@ -781,27 +781,33 @@ def scan_all(
         stages.append(
             (
                 "virtual environments",
-                lambda: find_venvs(home, inventory=inventory),
+                # preen: allow-dropped-arg -- search paths are already in inventory.
+                lambda: find_venvs(home, min_size_mb, inventory=inventory),
             )
         )
     if include_node_modules:
         stages.append(
             (
                 "node_modules",
-                lambda: find_node_modules(home, inventory=inventory),
+                # preen: allow-dropped-arg -- search paths are already in inventory.
+                lambda: find_node_modules(home, min_size_mb, inventory=inventory),
             )
         )
     if include_project_cruft:
         stages.append(
             (
                 "project caches",
-                lambda: find_project_cruft(home, inventory=inventory),
+                # preen: allow-dropped-arg -- search paths are already in inventory.
+                lambda: find_project_cruft(home, min_size_mb, inventory=inventory),
             )
         )
         stages.append(
             (
                 "build output",
-                lambda: find_probed_project_dirs(home, inventory=inventory),
+                # preen: allow-dropped-arg -- search paths are already in inventory.
+                lambda: find_probed_project_dirs(
+                    home, min_size_mb, inventory=inventory
+                ),
             )
         )
     if include_system_artifacts:
