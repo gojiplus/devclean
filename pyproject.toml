@@ -33,10 +33,10 @@ dependencies = [
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
-    "ruff>=0.16.9",
+    "ruff>=0.16.10",
     "pre-commit>=3.0.0",
     "pyright>=1.1.414",
-    "pydoclint>=0.10.1",
+    "pydoclint>=0.11.0",
 ]
 test = [
     "pytest>=7.0.0",
