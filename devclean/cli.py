@@ -254,7 +254,7 @@ def clean(
         return
 
     if not force and not typer.confirm(f"Delete {target}?"):
-        console.print("Cancelled.")
+        console.print("Canceled.")
         raise typer.Exit(0)
 
     try:
@@ -304,7 +304,7 @@ def _clean_tier(
         return
 
     if not force and not typer.confirm(f"\nDelete all {len(targets)} of these?"):
-        console.print("Cancelled.")
+        console.print("Canceled.")
         raise typer.Exit(0)
 
     freed = 0

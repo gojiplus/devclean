@@ -108,3 +108,6 @@ convention = "google"
 # Ignore subprocess warnings - this is a system administration tool
 exclude_dirs = ["tests"]
 skips = ["B404", "B603", "B607", "B110", "B112"]
+
+[tool.codespell]
+builtin = "clear,rare,en-GB_to_en-US"
