@@ -139,3 +139,16 @@ class TestIsSafeToDelete:
     def test_boolean_form_swallows_the_exception(self):
         assert is_safe_to_delete(Path.home()) is False
         assert is_safe_to_delete(Path("/does/not/exist")) is False
+
+
+@pytest.mark.parametrize("delete_parent", [False, True])
+def test_configured_protection_covers_nested_contents(
+    tmp_path, monkeypatch, delete_parent
+):
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    parent = tmp_path / "project/cache"
+    child = parent / "keep"
+    child.mkdir(parents=True)
+    target, protected = (parent, child) if delete_parent else (child, parent)
+    with pytest.raises(UnsafePathError, match="configured protected"):
+        assert_safe_to_delete(target, [str(protected)])

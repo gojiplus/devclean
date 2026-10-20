@@ -12,8 +12,9 @@ from rich.console import Console
 from rich.table import Table
 
 from .candidates import BULK_DELETABLE, Candidate, Tier
+from .codex_releases import unused_codex_releases
 from .config_cli import config_app
-from .exceptions import DevCleanError, UnsafePathError
+from .exceptions import DevCleanError
 from .safety import assert_safe_to_delete
 from .scanner import ScanResult, scan_all
 from .settings import DevCleanConfig, load_config
@@ -205,6 +206,26 @@ def _delete(path: Path, use_sudo: bool = False) -> None:
         shutil.rmtree(path)
 
 
+def _free_space() -> int | None:
+    try:
+        return shutil.disk_usage(Path.home()).free
+    except OSError:
+        return None
+
+
+def _report_space_change(before: int | None) -> None:
+    after = _free_space()
+    if before is None or after is None:
+        console.print("Filesystem free-space change unavailable.")
+        return
+    change = after - before
+    sign = "+" if change >= 0 else "-"
+    console.print(
+        f"Filesystem free-space change: {sign}{_human(abs(change))} "
+        "(other processes and filesystem snapshots can affect this)."
+    )
+
+
 @app.command()
 def clean(
     path: str = typer.Argument(None, help="A single path to delete"),
@@ -257,12 +278,79 @@ def clean(
         console.print("Canceled.")
         raise typer.Exit(0)
 
+    free_before = _free_space()
     try:
         _delete(target, use_sudo)
     except (OSError, subprocess.SubprocessError) as exc:
         console.print(f"[red]Failed to delete {target}: {exc}[/red]")
         raise typer.Exit(1) from exc
     console.print(f"[green]Deleted[/green] {target}")
+    _report_space_change(free_before)
+
+
+@app.command()
+def clean_codex_releases(
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Preview old releases; delete nothing"
+    ),
+    force: bool = typer.Option(
+        False, "--force", "-f", help="Skip confirmation, not safety checks"
+    ),
+) -> None:
+    """Remove older Codex daemon releases, preserving current and running versions."""
+    home = Path.home()
+    config = load_config()
+    try:
+        current, targets, busy = unused_codex_releases(home)
+        for target in targets:
+            assert_safe_to_delete(target, config.safety.protected_paths)
+    except (DevCleanError, OSError, ValueError) as exc:
+        console.print(f"[red]Cannot clean Codex releases: {exc}[/red]")
+        raise typer.Exit(1) from exc
+    console.print(f"Keeping current release: {current.name}")
+    for target in busy:
+        console.print(f"Keeping running release: {target.name}")
+    if not targets:
+        console.print("No unused older Codex releases to delete.")
+        return
+    for target in targets:
+        console.print(f"  {target}")
+    if dry_run:
+        console.print("--dry-run: nothing was deleted.")
+        return
+    if not force and not typer.confirm(f"Delete these {len(targets)} old releases?"):
+        console.print("Canceled.")
+        return
+
+    free_before = _free_space()
+    try:
+        for target in targets:
+            identity = target.stat()
+            latest, eligible, _busy = unused_codex_releases(home)
+            if latest != current or target not in eligible:
+                raise ValueError(
+                    "Codex installation or process state changed; stopping cleanup"
+                )
+            assert_safe_to_delete(target, config.safety.protected_paths)
+            checked = target.lstat()
+            if target.is_symlink() or (identity.st_dev, identity.st_ino) != (
+                checked.st_dev,
+                checked.st_ino,
+            ):
+                raise ValueError(
+                    f"Release directory changed during inspection: {target}"
+                )
+            _delete(target)
+            console.print(f"Deleted {target.name}")
+    except (DevCleanError, OSError, ValueError) as exc:
+        console.print(f"[red]Cleanup stopped: {exc}[/red]")
+        if isinstance(exc, PermissionError):
+            console.print(
+                "Check filesystem permissions and run from a terminal with write access."
+            )
+        _report_space_change(free_before)
+        raise typer.Exit(1) from exc
+    _report_space_change(free_before)
 
 
 def _clean_tier(
@@ -307,7 +395,9 @@ def _clean_tier(
         console.print("Canceled.")
         raise typer.Exit(0)
 
-    freed = 0
+    free_before = _free_space()
+    deleted_estimate = 0
+    failures = 0
     for candidate in targets:
         # Roll-ups carry a category name rather than a real path; they are
         # reported for visibility and cleaned by their own tooling.
@@ -319,13 +409,19 @@ def _clean_tier(
         try:
             assert_safe_to_delete(candidate.path, config.safety.protected_paths)
             _delete(candidate.path, use_sudo)
-        except (UnsafePathError, OSError, subprocess.SubprocessError) as exc:
+        except (DevCleanError, OSError, subprocess.SubprocessError) as exc:
+            failures += 1
             console.print(f"[red]skipped {candidate.path}: {exc}[/red]")
             continue
-        freed += candidate.size_bytes
+        deleted_estimate += candidate.size_bytes
         console.print(f"[green]deleted[/green] {candidate.path}")
 
-    console.print(f"\n[bold green]Freed {_human(freed)}[/bold green]")
+    console.print(
+        f"\nDeleted candidates: {_human(deleted_estimate)} estimated from the scan."
+    )
+    _report_space_change(free_before)
+    if failures:
+        raise typer.Exit(1)
 
 
 @app.callback(invoke_without_command=True)

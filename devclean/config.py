@@ -86,6 +86,24 @@ CRUFT_PATTERNS: list[CruftPattern] = [
         "Poetry cache (Library)",
         check_installed="poetry --version",
     ),
+    CruftPattern(
+        "{home}/.cache/pyright-python",
+        "python",
+        "Pyright downloaded tooling",
+        recovery="Reinstalled when the Python Pyright wrapper next runs",
+    ),
+    CruftPattern(
+        "{home}/.cache/prisma",
+        "tools",
+        "Prisma downloaded engines",
+        recovery="Re-downloaded when Prisma next installs its engine",
+    ),
+    CruftPattern(
+        "{home}/.cache/prisma-python",
+        "python",
+        "Prisma Python downloaded engines",
+        recovery="Re-downloaded when Prisma Python next installs its engine",
+    ),
     # ML/AI
     CruftPattern(
         "{home}/.cache/torch",

@@ -5,6 +5,7 @@ directory whose contents were never understood. These tests hold that line.
 """
 
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from typer.testing import CliRunner
@@ -14,6 +15,63 @@ from devclean.cli import app
 from devclean.scanner import ScanResult
 
 runner = CliRunner()
+
+
+def test_cleanup_reports_observed_space_separately_from_estimate(monkeypatch):
+    monkeypatch.setattr(
+        "devclean.cli._run_scan", lambda *args: ScanResult(candidates=[candidate()])
+    )
+    monkeypatch.setattr(
+        "devclean.cli.assert_safe_to_delete", lambda *args, **kwargs: None
+    )
+    monkeypatch.setattr("devclean.cli._delete", lambda *args: None)
+    readings = iter([1024**3, 1024**3 + 128 * 1024**2])
+    monkeypatch.setattr(
+        "devclean.cli.shutil.disk_usage", lambda _: SimpleNamespace(free=next(readings))
+    )
+    result = runner.invoke(app, ["clean", "--tier", "auto", "--force"])
+    assert result.exit_code == 0
+    assert "500 MB estimated" in result.stdout
+    assert "+128 MB" in result.stdout
+    assert "Freed 500" not in result.stdout
+
+
+def test_failed_delete_is_not_credited_as_reclaimed_space(monkeypatch):
+    monkeypatch.setattr(
+        "devclean.cli._run_scan", lambda *args: ScanResult(candidates=[candidate()])
+    )
+    monkeypatch.setattr(
+        "devclean.cli.assert_safe_to_delete", lambda *args, **kwargs: None
+    )
+
+    def fail_delete(*args):
+        raise PermissionError("blocked")
+
+    monkeypatch.setattr("devclean.cli._delete", fail_delete)
+    monkeypatch.setattr(
+        "devclean.cli.shutil.disk_usage", lambda _: SimpleNamespace(free=1024**3)
+    )
+    result = runner.invoke(app, ["clean", "--tier", "auto", "--force"])
+    assert result.exit_code == 1
+    assert "blocked" in result.stdout
+    assert "0 MB estimated" in result.stdout
+    assert "+0 MB" in result.stdout
+
+
+def test_unavailable_disk_usage_does_not_prevent_explicit_cleanup(
+    tmp_path, monkeypatch
+):
+    target = tmp_path / "victim"
+    target.mkdir()
+
+    def unavailable(*args):
+        raise OSError("unavailable")
+
+    monkeypatch.setattr("devclean.cli.shutil.disk_usage", unavailable)
+    result = runner.invoke(app, ["clean", str(target), "--force"])
+    assert result.exit_code == 0
+    assert not target.exists()
+    assert "free-space change unavailable" in result.stdout
 
 
 def candidate(**overrides: object) -> Candidate:
