@@ -15,6 +15,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .assistant_storage import find_assistant_storage
 from .candidates import Candidate, Tier
 from .config import (
     CRUFT_PATTERNS,
@@ -309,7 +310,7 @@ def build_project_inventory(
     """Walk every project root once and index all relevant directory names."""
     names: tuple[str, ...] = (*VENV_NAMES, "node_modules")
     if include_project_artifacts:
-        names = (*names, *PROJECT_CRUFT_NAMES, *PROJECT_PROBE_NAMES)
+        names = (*names, *PROJECT_CRUFT_NAMES, *PROJECT_PROBE_NAMES, ".benchmarks")
     names = tuple(dict.fromkeys(names))
     inventory = ProjectInventory()
     seen: set[Path] = set()
@@ -613,6 +614,34 @@ def find_probed_project_dirs(
     return candidates
 
 
+def find_benchmark_dirs(
+    inventory: ProjectInventory, min_size_mb: int
+) -> list[Candidate]:
+    """Report benchmark working directories without assuming they are disposable."""
+    candidates = []
+    for path in inventory.paths_named(".benchmarks"):
+        if path.is_symlink():
+            continue
+        size = get_dir_size(path)
+        if size is None or size < min_size_mb * 1024**2:
+            continue
+        candidates.append(
+            Candidate(
+                path=path,
+                size_bytes=size,
+                category="benchmark-data",
+                description="Benchmark working data, downloads, and caches",
+                tier=Tier.INSPECT,
+                recovery="May require downloading corpora and rerunning evaluations; preserve unique results first",
+                evidence=["project directory named .benchmarks"],
+                concerns=[
+                    "May contain unpublished results or Git checkouts; verify those are preserved before deleting"
+                ],
+            )
+        )
+    return candidates
+
+
 def _get_dir_sizes(paths: list[Path], timeout: int = 60) -> dict[Path, int]:
     """Measure several directories in one bounded ``du`` invocation."""
     if not paths:
@@ -775,7 +804,11 @@ def scan_all(
                 result.errors.append(f"Error scanning temporary dependencies: {exc}")
 
     stages: list[tuple[str, Callable[[], list[Candidate]]]] = [
-        ("known cruft", lambda: scan_known_cruft(home, min_size_mb))
+        ("known cruft", lambda: scan_known_cruft(home, min_size_mb)),
+        (
+            "assistant storage",
+            lambda: find_assistant_storage(home, get_dir_size, min_size_mb),
+        ),
     ]
     if include_venvs:
         stages.append(
@@ -808,6 +841,13 @@ def scan_all(
                 lambda: find_probed_project_dirs(
                     home, min_size_mb, inventory=inventory
                 ),
+            )
+        )
+    if include_project_cruft and inventory is not None:
+        stages.append(
+            (
+                "benchmark working data",
+                lambda: find_benchmark_dirs(inventory, min_size_mb),
             )
         )
     if include_system_artifacts:

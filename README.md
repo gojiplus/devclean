@@ -32,7 +32,9 @@ devclean clean --tier auto --dry-run
 devclean clean --tier auto
 ```
 
-`scan --json` emits the same data for scripting.
+`scan --json` emits the same data for scripting. Cleanup reports the measured
+change in free space on the home filesystem separately from scanned candidate
+sizes: hard links, snapshots, and concurrent disk activity can make them differ.
 
 Each scan section can be switched off per run: `--no-venvs`, `--no-node`,
 `--no-project`, `--no-system`, `--no-temp`. `--min-size N` raises the size
@@ -114,6 +116,34 @@ temporary storage is not proof that a directory is unused or reproducible.
 Verified virtualenvs and `node_modules` nested inside those parents are listed
 separately as bulk-deletable when a manifest proves how to restore them.
 Overlapping parent and child candidates are counted only once in the scan total.
+
+The scan also reports Codex and Claude storage by purpose: conversations and
+memory, databases, installations, temporary files, and caches. Non-current
+Codex daemon releases appear only when the `current` link resolves to a release
+inside the expected installation directory. A non-current version may still be
+running. These findings are always `inspect`, never bulk-deletable. Credentials
+and settings are not scanned.
+
+To remove unused old Codex daemon installations explicitly:
+
+```bash
+devclean clean-codex-releases --dry-run
+devclean clean-codex-releases
+```
+
+This command preserves the current release, newer staged releases, and older
+releases whose executables are open in visible processes. It requires a valid
+`current` symlink and a successful `lsof` check, honors protected paths, and
+rechecks the installation and processes before each deletion. `--force` skips
+only the confirmation. It never deletes sessions, databases, settings, or
+credentials. Close Codex before cleanup to avoid releases starting or updating
+between checks. Permission failures stop cleanup with a nonzero exit status;
+bulk tier cleanup also exits nonzero if any selected deletion fails.
+
+Project `.benchmarks` directories are also inspection-only: they can contain
+large downloaded corpora, but also unpublished results and Git checkouts. Verify
+that unique work is preserved before deleting them. Their sizes participate in
+the existing overlap-aware total, not the bulk-reclaimable total.
 
 Model caches and anything a probe flags stay out of the bulk-deletable set.
 
