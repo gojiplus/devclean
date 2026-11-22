@@ -13,6 +13,10 @@ sorts every candidate by how much evidence actually backs deleting it.
 
 ## Install
 
+Download the wheel from [GitHub Releases](https://github.com/gojiplus/devclean/releases/latest)
+and run `uv tool install ./devclean-*.whl` from the download directory.
+To install the current development version, use Git.
+
 ```bash
 uv tool install git+https://github.com/gojiplus/devclean.git
 ```
@@ -66,7 +70,7 @@ working directory. The scheduled interpreter does not need devclean's `.venv`.
 
 Each scan section can be switched off per run: `--no-venvs`, `--no-node`,
 `--no-project`, `--no-system`, `--no-temp`. `--min-size N` raises the size
-floor for caches, system artifacts, and temporary directories.
+floor for caches, system artifacts, and temporary files and directories.
 
 ## Tiers
 

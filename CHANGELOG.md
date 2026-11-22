@@ -6,6 +6,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-21
+
+- `scan` and `plan` report large temporary files and directories for individual
+  review. The cleanup skill explains how to check an archive, a Git remote, or
+  a published dataset before deleting a working copy.
+- Scheduled cleanup can remove an inactive project's `.venv` when its lockfile
+  can rebuild it. A dry run lists eligible projects. Recent activity, tracked
+  files, and unexpected environment contents protect the environment.
+- Cache cleanup uses the owning package manager when its cache location matches
+  the selected path. Space estimates exclude overlapping entries and
+  display-only groups. Cleanup reports the observed change in free space.
+- Assistant storage is visible in scans. `clean-codex-releases` can remove old
+  Codex installations after checking the current release and running processes.
+
 ## [0.3.0] - 2026-08-18
 
 First tagged release.
@@ -44,5 +58,6 @@ First tagged release.
   above the size floor." with no hint that anything went wrong, and `plan`
   never showed stage errors at all.
 
-[Unreleased]: https://github.com/gojiplus/devclean/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/gojiplus/devclean/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/gojiplus/devclean/releases/tag/v0.4.0
 [0.3.0]: https://github.com/gojiplus/devclean/releases/tag/v0.3.0

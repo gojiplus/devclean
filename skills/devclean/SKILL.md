@@ -33,8 +33,8 @@ actually are. Do not resolve it by reasoning about what they probably are.
 - `devclean clean --tier auto|verified [--dry-run]` — delete a whole tier.
 - `devclean clean PATH [--dry-run]` — delete one named path.
 
-Install: `uv tool install devclean` (or `uvx devclean`), or from the repo with
-`uv sync && uv run devclean`.
+Install from GitHub with `uv tool install git+https://github.com/gojiplus/devclean.git`.
+From a repository checkout, run `uv run devclean scan`.
 
 ## Tiers
 
