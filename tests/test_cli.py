@@ -31,8 +31,8 @@ def test_cleanup_reports_observed_space_separately_from_estimate(monkeypatch):
     )
     result = runner.invoke(app, ["clean", "--tier", "auto", "--force"])
     assert result.exit_code == 0
-    assert "500 MB estimated" in result.stdout
-    assert "+128 MB" in result.stdout
+    assert "500 MiB estimated" in result.stdout
+    assert "+128 MiB" in result.stdout
     assert "Freed 500" not in result.stdout
 
 
@@ -54,8 +54,8 @@ def test_failed_delete_is_not_credited_as_reclaimed_space(monkeypatch):
     result = runner.invoke(app, ["clean", "--tier", "auto", "--force"])
     assert result.exit_code == 1
     assert "blocked" in result.stdout
-    assert "0 MB estimated" in result.stdout
-    assert "+0 MB" in result.stdout
+    assert "0 MiB estimated" in result.stdout
+    assert "+0 MiB" in result.stdout
 
 
 def test_unavailable_disk_usage_does_not_prevent_explicit_cleanup(
@@ -169,7 +169,7 @@ class TestTierExecution:
         result = runner.invoke(app, ["clean", "--tier", "verified", "--force"])
 
         assert result.exit_code == 0
-        assert "skipping roll-up" in result.stdout
+        assert "Nothing in tier" in result.stdout
         mock_delete.assert_not_called()
 
 
@@ -259,3 +259,71 @@ class TestScanIsReadOnly:
 
         assert result.exit_code == 0
         mock_scan.assert_called_once_with(None, False, False, False, True, False)
+
+
+def test_explicit_regular_file_cleanup(tmp_path):
+    archive = tmp_path / "archive.zip"
+    archive.write_bytes(b"old download")
+    assert runner.invoke(app, ["clean", str(archive), "--dry-run"]).exit_code == 0
+    assert archive.is_file()
+    result = runner.invoke(app, ["clean", str(archive), "--force"])
+    assert result.exit_code == 0, result.output
+    assert not archive.exists()
+
+
+def test_explicit_symlink_preserves_target(tmp_path):
+    data = tmp_path / "research"
+    data.mkdir()
+    link = tmp_path / "download"
+    link.symlink_to(data, target_is_directory=True)
+    result = runner.invoke(app, ["clean", str(link), "--force"])
+    assert result.exit_code != 0
+    assert data.is_dir()
+    assert link.is_symlink()
+
+
+def test_cache_cleanup_uses_owner_with_explicit_directory(tmp_path, monkeypatch):
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    cache = tmp_path / ".cache/uv"
+    cache.mkdir(parents=True)
+    calls = []
+    monkeypatch.setattr(
+        "devclean.cli.subprocess.run", lambda argv, **kw: calls.append(argv)
+    )
+    assert runner.invoke(app, ["clean", str(cache), "--dry-run"]).exit_code == 0
+    assert calls == []
+    result = runner.invoke(app, ["clean", str(cache), "--force"])
+    assert result.exit_code == 0, result.output
+    assert calls == [["uv", "cache", "clean", "--cache-dir", str(cache)]]
+    assert cache.is_dir()
+
+
+def test_unbounded_owner_command_is_advisory(tmp_path, monkeypatch):
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    cache = tmp_path / "Library/Caches/Homebrew"
+    cache.mkdir(parents=True)
+    result = runner.invoke(app, ["clean", str(cache), "--force"])
+    assert result.exit_code != 0
+    assert cache.is_dir()
+    assert "brew cleanup" in result.output
+
+
+def test_verified_cleanup_rechecks_environment_after_confirmation(
+    tmp_path, monkeypatch
+):
+    project = tmp_path / "project"
+    env = project / ".venv"
+    env.mkdir(parents=True)
+    (env / "pyvenv.cfg").touch()
+    (project / "requirements.txt").touch()
+    found = candidate(path=env, tier=Tier.VERIFIED)
+    monkeypatch.setattr("devclean.cli._run_scan", lambda *a: ScanResult([found]))
+
+    def confirm(_):
+        (env / "observations.csv").touch()
+        return True
+
+    monkeypatch.setattr("devclean.cli.typer.confirm", confirm)
+    result = runner.invoke(app, ["clean", "--tier", "verified"])
+    assert result.exit_code == 1
+    assert (env / "observations.csv").is_file()

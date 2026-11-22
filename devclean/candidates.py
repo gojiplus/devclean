@@ -8,6 +8,7 @@ suggestive name.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -60,6 +61,9 @@ class Candidate:
     member_count: int = 1
     """Paths rolled up into this candidate, for per-category aggregates."""
 
+    member_sizes: dict[Path, int] = field(default_factory=dict, repr=False)
+    """Per-directory measurements behind a display roll-up."""
+
     def downgrade(self, *concerns: str) -> None:
         """Drop to INSPECT and record why.
 
@@ -73,7 +77,11 @@ class Candidate:
 
     @property
     def bulk_deletable(self) -> bool:
-        return self.tier in BULK_DELETABLE and not self.concerns
+        return (
+            self.path.is_absolute()
+            and self.tier in BULK_DELETABLE
+            and not self.concerns
+        )
 
     @property
     def size_mb(self) -> float:
@@ -85,9 +93,7 @@ class Candidate:
 
     @property
     def size_human(self) -> str:
-        if self.size_gb >= 1:
-            return f"{self.size_gb:.1f} GB"
-        return f"{self.size_mb:.0f} MB"
+        return format_bytes(self.size_bytes)
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize for ``devclean scan --json``."""
@@ -104,3 +110,32 @@ class Candidate:
             "member_count": self.member_count,
             "bulk_deletable": self.bulk_deletable,
         }
+
+
+def format_bytes(size_bytes: int) -> str:
+    """Format an allocated-space estimate in binary units."""
+    if size_bytes >= 1024**3:
+        return f"{size_bytes / 1024**3:.1f} GiB"
+    return f"{size_bytes / 1024**2:.0f} MiB"
+
+
+def footprint_bytes(candidates: Iterable[Candidate]) -> int:
+    """Count each measured path once, including members of display roll-ups."""
+    sizes: dict[Path, int] = {}
+    for candidate in candidates:
+        for path, size in (
+            candidate.member_sizes or {candidate.path: candidate.size_bytes}
+        ).items():
+            sizes[path] = max(sizes.get(path, 0), size)
+
+    # A fresh set of disjoint children can outweigh a cached parent measurement.
+    children: dict[Path, int] = {}
+    total = 0
+    for path in sorted(sizes, key=lambda p: len(p.parts), reverse=True):
+        size = max(sizes[path], children.get(path, 0))
+        parent = next((p for p in path.parents if p in sizes), None)
+        if parent is None:
+            total += size
+        else:
+            children[parent] = children.get(parent, 0) + size
+    return total

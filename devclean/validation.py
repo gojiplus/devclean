@@ -47,7 +47,10 @@ def sanitize_path(path_str: str) -> Path:
 
     # Convert to Path and resolve
     try:
-        path = Path(path_str).expanduser().resolve()
+        named = Path(path_str).expanduser()
+        if named.is_symlink():
+            raise UnsafePathError(f"Refusing to follow a symbolic link: {named}")
+        path = named.resolve()
     except (OSError, RuntimeError) as e:
         raise UnsafePathError(f"Invalid path: {e}") from e
 

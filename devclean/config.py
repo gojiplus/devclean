@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 
 @dataclass
@@ -27,9 +28,15 @@ class CruftPattern:
     purge_command: str | None = None
     """Official command to clear this cache, where the owning tool provides one.
 
-    Its presence is what earns a pattern the AUTO tier: the tool itself
-    declares the directory disposable.
     """
+    cache_option: str | None = None
+    """Owner CLI option that confines this operation to the measured directory."""
+
+    def scoped_purge(self, path: Path) -> list[str] | None:
+        """Return an argv confined to this cache when the tool supports it."""
+        if self.purge_command and self.cache_option:
+            return [*self.purge_command.split(), self.cache_option, str(path)]
+        return None
 
 
 # Known cruft locations on macOS for developers
@@ -49,6 +56,7 @@ CRUFT_PATTERNS: list[CruftPattern] = [
         "pip download cache",
         check_installed="pip --version",
         purge_command="pip cache purge",
+        cache_option="--cache-dir",
         recovery="Re-downloaded on next `pip install`",
     ),
     CruftPattern(
@@ -57,6 +65,7 @@ CRUFT_PATTERNS: list[CruftPattern] = [
         "pip download cache (macOS default location)",
         check_installed="pip --version",
         purge_command="pip cache purge",
+        cache_option="--cache-dir",
         recovery="Re-downloaded on next `pip install`",
     ),
     CruftPattern(
@@ -65,6 +74,7 @@ CRUFT_PATTERNS: list[CruftPattern] = [
         "uv package cache",
         check_installed="uv --version",
         purge_command="uv cache clean",
+        cache_option="--cache-dir",
         recovery="Re-downloaded on next `uv sync`",
     ),
     CruftPattern(
@@ -114,8 +124,10 @@ CRUFT_PATTERNS: list[CruftPattern] = [
     CruftPattern(
         "{home}/.cache/huggingface",
         "ml",
-        "HuggingFace models and datasets",
+        "Hugging Face models and datasets",
         check_installed=None,
+        safe=False,
+        recovery="Verify upstream revision, access, and download size for each dataset or model",
     ),
     CruftPattern(
         "{home}/.cache/whisper",
@@ -142,6 +154,7 @@ CRUFT_PATTERNS: list[CruftPattern] = [
         "npm cache",
         check_installed="npm --version",
         purge_command="npm cache clean --force",
+        cache_option="--cache",
         recovery="Re-downloaded on next `npm install`",
     ),
     CruftPattern(
@@ -191,8 +204,10 @@ CRUFT_PATTERNS: list[CruftPattern] = [
     CruftPattern(
         "{home}/.docker",
         "docker",
-        "Docker config and buildx cache",
+        "Docker client configuration and buildx state",
         check_installed="docker --version",
+        safe=False,
+        recovery="Restore client configuration and contexts from a backup",
     ),
     # Testing
     CruftPattern(
