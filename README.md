@@ -41,6 +41,29 @@ Single-path cleanup measures the target filesystem. The batch summary observes
 the home filesystem.
 
 
+For scheduled cleanup of inactive projects, run from this checkout with a
+Python interpreter outside the environments being cleaned:
+
+```bash
+python3 -m devclean.inactive --root ~/Documents/GitHub --days 14
+python3 -m devclean.inactive --root ~/Documents/GitHub --days 14 --apply --prune-uv
+```
+
+The first command is a dry run. The second removes only direct-child `.venv`
+directories in Git projects with both `pyproject.toml` and `uv.lock`. Recent
+commits, checkouts, project files (including ignored data), environment changes,
+and running processes protect a project. Inspection errors also preserve it.
+Add `.devclean-keep` to opt a project out. Symlinked environments, tracked files,
+and unexpected top-level environment contents are preserved.
+
+Restore a removed environment with `uv sync --locked` in its project.
+`--prune-uv` runs the installed uv version’s cache prune operation, which can also
+remove centrally managed project environments. It skips while uv is running
+and respects the cache lock.
+Runs cannot overlap; rotating logs live in `~/.local/state/devclean/inactive.log`.
+Schedule this command with cron using absolute paths and the checkout as its
+working directory. The scheduled interpreter does not need devclean's `.venv`.
+
 Each scan section can be switched off per run: `--no-venvs`, `--no-node`,
 `--no-project`, `--no-system`, `--no-temp`. `--min-size N` raises the size
 floor for caches, system artifacts, and temporary directories.

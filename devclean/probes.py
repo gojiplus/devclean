@@ -40,22 +40,21 @@ PYTHON_RESTORE_COMMANDS = {
     "environment.yml": "conda env create -f environment.yml",
 }
 
-VENV_ENTRIES = {
-    "pyvenv.cfg",
-    "bin",
-    "include",
-    "lib",
-    "lib64",
-    "share",
-    "man",
-    "etc",
-    "Scripts",
-    "Lib",
-    "Include",
-    ".gitignore",
-    ".lock",
-    "CACHEDIR.TAG",
-}
+UV_MACOS_ENTRIES = frozenset(
+    {
+        "pyvenv.cfg",
+        "bin",
+        "include",
+        "lib",
+        "lib64",
+        "share",
+        "etc",
+        ".gitignore",
+        ".lock",
+        "CACHEDIR.TAG",
+    }
+)
+VENV_ENTRIES = UV_MACOS_ENTRIES | {"man", "Scripts", "Lib", "Include"}
 
 
 def _looks_like_version(segment: str) -> bool:
@@ -132,7 +131,9 @@ def probe_dist_dir(path: Path) -> list[str]:
     return concerns
 
 
-def probe_venv(path: Path) -> list[str]:
+def probe_venv(
+    path: Path, *, allowed_entries: frozenset[str] = VENV_ENTRIES
+) -> list[str]:
     """Verify a directory is a real virtualenv and not a package that shares the name.
 
     ``pyvenv.cfg`` is the marker. Without this check a path such as
@@ -145,16 +146,39 @@ def probe_venv(path: Path) -> list[str]:
         return ["no pyvenv.cfg — not a virtualenv"]
     try:
         unexpected = sorted(
-            p.name for p in path.iterdir() if p.name not in VENV_ENTRIES
+            p.name for p in path.iterdir() if p.name not in allowed_entries
         )
     except OSError as exc:
         return [f"could not inspect environment: {exc}"]
     return [f"unexpected environment entry: {name}" for name in unexpected]
 
 
-def inspect_environment(path: Path) -> tuple[str, list[str]]:
+def inspect_environment(
+    path: Path, *, allowed_entries: frozenset[str] = VENV_ENTRIES
+) -> tuple[str, list[str]]:
     """Return the Python restore instruction and any obstacles to cleanup."""
-    concerns = probe_venv(path)
+    concerns = probe_venv(path, allowed_entries=allowed_entries)
+    if any((directory / ".git").exists() for directory in path.parents):
+        try:
+            tracked = subprocess.run(
+                [
+                    "git",
+                    "--literal-pathspecs",
+                    "-C",
+                    str(path.parent),
+                    "ls-files",
+                    "--",
+                    path.name,
+                ],
+                capture_output=True,
+                timeout=30,
+                check=True,
+            )
+        except (OSError, subprocess.SubprocessError):
+            concerns.append("could not verify whether Git tracks environment files")
+        else:
+            if tracked.stdout:
+                concerns.append("environment contains Git-tracked files")
     for active in (sys.prefix, os.environ.get("VIRTUAL_ENV")):
         if active and path.resolve() == Path(active).resolve():
             concerns.append("Python environment is active")
