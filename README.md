@@ -209,7 +209,10 @@ active settings.
 One guard, in `devclean/safety.py`, used by every deletion path. It refuses your
 home directory, its top-level folders, system roots, temporary roots, anything
 directly inside a system root, and any parent of your home directory.
-Configured `protected_paths` are honored everywhere. Outside your home,
+Each configured `protected_paths` entry protects its entire tree. Older starter
+configs listed `/` and `~`, which now protect everything below those roots.
+Set `protected_paths = []` to use the built-in guards alone, or list the
+specific folders you want to keep. Outside your home,
 deletion is limited to children of the recognized temporary roots.
 
 System artifact detection is inventory only. The bulk cleanup command cannot

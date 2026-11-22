@@ -17,6 +17,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Cache cleanup uses the owning package manager when its cache location matches
   the selected path. Space estimates exclude overlapping entries and
   display-only groups. Cleanup reports the observed change in free space.
+- An explicitly protected directory now protects every descendant, including
+  when the directory is also a built-in protected root. Older configs that list
+  `/` block all cleanup until you narrow the list.
 - Assistant storage is visible in scans. `clean-codex-releases` can remove old
   Codex installations after checking the current release and running processes.
 
