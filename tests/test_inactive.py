@@ -44,7 +44,10 @@ def project(tmp_path, monkeypatch):
             ["git", "-C", str(repo), *args], check=True, capture_output=True, env=env
         )
     old = time.time() - 40 * 86400
+    # Only HEAD activity and working-tree mtimes enter the age check.
+    os.utime(repo / ".git/logs/HEAD", (old, old))
     for base, dirs, files in os.walk(root):
+        dirs[:] = [name for name in dirs if name != ".git"]
         for name in (*dirs, *files):
             os.utime(Path(base) / name, (old, old))
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))

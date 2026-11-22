@@ -447,13 +447,26 @@ class TestScanAll:
 
 
 class TestCheckCommandExists:
-    def test_uses_path_and_ignores_arguments(self, tmp_path, monkeypatch):
+    @pytest.fixture
+    def tool(self, tmp_path, monkeypatch):
         tool = tmp_path / "tool"
         tool.touch(mode=0o755)
         monkeypatch.setenv("PATH", str(tmp_path))
-        assert check_command_exists("tool --version")
+        return tool
+
+    def test_exists(self, tool):
+        assert check_command_exists(tool.name)
+
+    def test_missing(self, tool):
         assert not check_command_exists("missing")
+
+    def test_error_is_not_fatal(self, tool, monkeypatch):
+        monkeypatch.setenv("PATH", str(tool))  # An invalid search directory.
+        assert not check_command_exists(tool.name)
         assert not check_command_exists("")
+
+    def test_strips_version_argument(self, tool):
+        assert check_command_exists(f"{tool.name} --version")
 
 
 class TestScanKnownCruft:

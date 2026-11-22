@@ -4,9 +4,9 @@ All notable changes to this project are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## Unreleased
 
-## [0.4.0] - 2026-11-21
+## 0.4.0 - 2026-11-21
 
 - `scan` and `plan` report large temporary files and directories for individual
   review. The cleanup skill explains how to check an archive, a Git remote, or
@@ -61,6 +61,4 @@ First tagged release.
   above the size floor." with no hint that anything went wrong, and `plan`
   never showed stage errors at all.
 
-[Unreleased]: https://github.com/gojiplus/devclean/compare/v0.4.0...HEAD
-[0.4.0]: https://github.com/gojiplus/devclean/releases/tag/v0.4.0
 [0.3.0]: https://github.com/gojiplus/devclean/releases/tag/v0.3.0
