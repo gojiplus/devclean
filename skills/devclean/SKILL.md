@@ -33,15 +33,15 @@ actually are. Do not resolve it by reasoning about what they probably are.
 - `devclean clean --tier auto|verified [--dry-run]` — delete a whole tier.
 - `devclean clean PATH [--dry-run]` — delete one named path.
 
-Install: `uv tool install devclean` (or `uvx devclean`), or from the repo with
-`uv sync && uv run devclean`.
+Install from GitHub with `uv tool install git+https://github.com/gojiplus/devclean.git`.
+From a repository checkout, run `uv run devclean scan`.
 
 ## Tiers
 
 | Tier | Means | Handling |
 |---|---|---|
-| `auto` | The owning tool documents a purge command for this directory | Bulk-deletable |
-| `verified` | A marker file proves it is what its name says (`pyvenv.cfg`, `package.json`) | Bulk-deletable |
+| `auto` | The installed tool supports a purge scoped to this directory | Bulk-deletable |
+| `verified` | The dependency directory and its recovery evidence pass inspection | Bulk-deletable |
 | `probe` | Name matched, contents passed a shape check | Show the user, get a yes |
 | `inspect` | A probe objected, with reasons | **Read the contents. Report what they are. Then ask.** |
 
@@ -69,6 +69,43 @@ human decision.
    repo. Files that were committed but should not have been (`.pyc` under
    `__pycache__`, for one real case) show up here as deletions. Restore them
    with `git checkout` and tell the user what happened.
+
+## Inspecting scratch directories
+
+When the user asks about temporary storage, rank individual files as well as
+directories by allocated size. Inspect the largest children of mixed folders.
+A session folder can hold a disposable environment beside the only copy of
+annotations, embeddings, or a Git worktree. Name the smallest path that the
+evidence supports deleting.
+
+| Candidate | What to establish before proposing removal |
+|---|---|
+| Extracted data | Stream the corresponding member from the retained archive and compare its SHA-256 with the extracted file. Keep the archive and report which member restores the file. An archive can contain other unique members. |
+| Standalone Git checkout | Find a retained checkout or remote, even if the temporary checkout has no configured remote. Verify its commits are reachable from retained refs. Check local branches, stashes, reflogs, staged and unstaged changes, untracked **and ignored** files, and registered worktrees. A clean status alone misses ignored data. Account for any extra files separately. |
+| Linked Git worktree | Identify its owning repository with `git worktree list --porcelain`. Use Git's worktree removal command after checking for unique work, including ignored files. |
+| Scratch virtualenv | Inspect `pyvenv.cfg`, the project manifest or lockfile, and unexpected contents. Check which programs have the environment open. Scope the proposal to the environment itself so adjacent scripts, results, and checkpoints survive. |
+| Downloaded research dataset | Verify the upstream revision, filenames, sizes, and content IDs. Report the download cost and identify any locally collected data stored nearby. Use the cache owner's controls for shared storage. |
+
+For age-based requests, give the cutoff and distinguish top-level entries from
+old files inside newer folders. Extracted files can retain publication dates.
+Check the newest descendant before calling a whole tree stale.
+
+Check open files and working directories before removal. An empty process
+check is a point-in-time observation. Report inaccessible paths as unmeasured.
+For a list of scratch checkouts, show the exact subset that passed inspection
+and recheck those paths immediately before an approved cleanup.
+
+For published bundles, compare the local release archive with the publisher's
+recorded checksum. Then compare individual members by content. Packaging
+changes can produce different ZIP hashes while preserving every source PDF
+and table. Check the manifests for acquisition URLs, version IDs, and exceptions
+before dismissing unmatched documentation. A Git ignore rule alone tells you
+nothing about whether a retained copy exists.
+
+For managed caches, inspect the owning tool's scope. A cache purge can leave
+settings and other data in place. Report the measured footprint and the
+observed free-space change separately. A shared VM disk may retain its host
+allocation even after its guest frees space.
 
 ## Reporting
 

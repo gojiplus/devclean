@@ -24,20 +24,7 @@ class ScanSettings:
 class SafetySettings:
     """Settings for deletion safety."""
 
-    protected_paths: list[str] = field(
-        default_factory=lambda: [
-            "~",
-            "~/Documents",
-            "~/Desktop",
-            "~/Downloads",
-            "~/Pictures",
-            "~/Music",
-            "~/Movies",
-            "/",
-            "/System",
-            "/Applications",
-        ]
-    )
+    protected_paths: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -231,11 +218,8 @@ timeout_seconds = 120
 max_depth = 8
 
 [safety]
-# Paths that are never safe to delete
-protected_paths = [
-    "~", "~/Documents", "~/Desktop", "~/Downloads",
-    "~/Pictures", "~/Music", "~/Movies", "/", "/System", "/Applications"
-]
+# Additional directories whose entire contents must be preserved
+protected_paths = []
 """
 
     try:

@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import contextlib
 import os
+import shutil
+import stat
 import subprocess
 from collections import defaultdict
 from collections.abc import Callable, Iterable
@@ -16,7 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .assistant_storage import find_assistant_storage
-from .candidates import Candidate, Tier
+from .candidates import Candidate, Tier, footprint_bytes
 from .config import (
     CRUFT_PATTERNS,
     PROJECT_CRUFT_NAMES,
@@ -27,7 +29,12 @@ from .config import (
 )
 from .exceptions import ScanError, ScanTimeoutError
 from .locations import temporary_roots
-from .probes import probe_dist_dir, probe_node_modules, probe_venv, recovery_evidence
+from .probes import (
+    inspect_environment,
+    probe_dist_dir,
+    probe_node_modules,
+    recovery_evidence,
+)
 from .system_artifacts import find_system_artifacts
 
 
@@ -64,34 +71,7 @@ class ScanResult:
     @property
     def total_bytes(self) -> int:
         """Bytes represented by candidates, without counting nested paths twice."""
-        relative_total = sum(
-            c.size_bytes for c in self.candidates if not c.path.is_absolute()
-        )
-        sizes_by_path: dict[Path, int] = {}
-        for candidate in self.candidates:
-            if candidate.path.is_absolute():
-                sizes_by_path[candidate.path] = max(
-                    candidate.size_bytes,
-                    sizes_by_path.get(candidate.path, 0),
-                )
-
-        counted: dict[Path, int] = {}
-        for path, size in sorted(
-            sizes_by_path.items(),
-            key=lambda item: (len(item[0].parts), str(item[0])),
-        ):
-            ancestor = next(
-                (root for root in counted if path.is_relative_to(root)), None
-            )
-            if ancestor is not None:
-                # Measurements can disagree when the ancestor's figure came
-                # from a stale cache: a fresh child measurement then proves
-                # the ancestor is at least that large.
-                counted[ancestor] = max(counted[ancestor], size)
-                continue
-            counted[path] = size
-
-        return sum(counted.values()) + relative_total
+        return footprint_bytes(self.candidates)
 
     @property
     def total_gb(self) -> float:
@@ -100,7 +80,7 @@ class ScanResult:
     @property
     def reclaimable_bytes(self) -> int:
         """Bytes in the bulk-deletable set only."""
-        return sum(c.size_bytes for c in self.bulk_deletable)
+        return footprint_bytes(self.bulk_deletable)
 
     def sort(self) -> None:
         self.candidates.sort(key=lambda c: c.size_bytes, reverse=True)
@@ -196,17 +176,8 @@ def get_dir_size(path: Path, timeout: int = 30, use_cache: bool = True) -> int |
 
 def check_command_exists(command: str) -> bool:
     """Check if a command/tool is installed."""
-    try:
-        # Extract just the binary name from "binary --version" style commands
-        binary = command.split()[0]
-        result = subprocess.run(
-            ["which", binary],
-            capture_output=True,
-            timeout=5,
-        )
-        return result.returncode == 0
-    except (OSError, subprocess.SubprocessError):
-        return False
+    words = command.split()
+    return bool(words and shutil.which(words[0]))
 
 
 def _find_named_dirs(
@@ -328,7 +299,7 @@ def build_project_inventory(
 
     for name in VENV_NAMES:
         for path in inventory.paths_named(name):
-            if not probe_venv(path):
+            if (path / "pyvenv.cfg").is_file():
                 inventory.virtualenvs.append(path)
 
     if include_default_roots:
@@ -397,13 +368,11 @@ def _scan_pattern(
     if pattern.purge_command:
         evidence.append(f"tool provides `{pattern.purge_command}`")
     if tool_installed is False:
-        evidence.append("owning tool is not installed — orphaned data")
+        evidence.append("owning tool is unavailable on PATH")
 
-    # A documented purge command is the tool declaring its own cache
-    # disposable. Without one, deletion is still probably fine but nothing
-    # authoritative says so.
-    tier = Tier.AUTO if pattern.purge_command else Tier.PROBE
-    if not pattern.safe:
+    scoped = pattern.scoped_purge(path)
+    tier = Tier.AUTO if scoped and tool_installed else Tier.PROBE
+    if not pattern.safe or (pattern.purge_command and tier != Tier.AUTO):
         tier = Tier.INSPECT
 
     candidate = Candidate(
@@ -415,6 +384,10 @@ def _scan_pattern(
         recovery=pattern.recovery,
         evidence=evidence,
     )
+    if pattern.purge_command and tier is Tier.INSPECT:
+        candidate.concerns.append(
+            f"Review owner command and its scope: {pattern.purge_command}"
+        )
     if not pattern.safe:
         candidate.concerns.append("marked unsafe: may hold state you cannot regenerate")
     return candidate
@@ -451,20 +424,17 @@ def find_venvs(
             continue
 
         project = venv_path.parent
-        evidence, extra_concerns = recovery_evidence(venv_path, project)
-        evidence.insert(0, "pyvenv.cfg present")
-
+        recovery, concerns = inspect_environment(venv_path)
         candidate = Candidate(
             path=venv_path,
             size_bytes=size,
             category="python",
             description=f"virtualenv in {project.name}",
             tier=Tier.VERIFIED,
-            recovery="uv sync (or pip install -r requirements.txt)",
-            evidence=evidence,
+            recovery=recovery,
+            evidence=["pyvenv.cfg present"],
         )
-        manifest_missing = [c for c in extra_concerns if "no manifest" in c]
-        candidate.downgrade(*manifest_missing)
+        candidate.downgrade(*concerns)
         candidates.append(candidate)
 
     return candidates
@@ -555,6 +525,7 @@ def find_project_cruft(
                 recovery=recovery,
                 evidence=[f"{len(members)} directories, all regenerated by tooling"],
                 member_count=len(members),
+                member_sizes=sizes,
             )
         )
 
@@ -681,7 +652,7 @@ def find_temporary_dirs(
     roots: list[Path] | None = None,
     owner_uid: int | None = None,
 ) -> list[Candidate]:
-    """Find large, user-owned directories directly inside temporary roots.
+    """Find large, user-owned files and directories directly inside temporary roots.
 
     A temporary location is useful evidence for where disk space went, but it
     does not prove that the contents are unused or reproducible.  These
@@ -697,22 +668,22 @@ def find_temporary_dirs(
         except OSError:
             continue
 
-        owned_dirs: list[Path] = []
+        owned: list[Path] = []
         for path in children:
             try:
+                info = path.lstat()
                 if (
-                    path.is_symlink()
-                    or not path.is_dir()
+                    info.st_uid != uid
+                    or not (stat.S_ISREG(info.st_mode) or stat.S_ISDIR(info.st_mode))
                     or path.is_mount()
-                    or path.stat().st_uid != uid
                 ):
                     continue
             except OSError:
                 continue
-            owned_dirs.append(path)
+            owned.append(path)
 
-        sizes = _get_dir_sizes(owned_dirs)
-        for path in owned_dirs:
+        sizes = _get_dir_sizes_batched(owned)
+        for path in owned:
             size = sizes.get(path)
             if size is None or size < floor:
                 continue
@@ -722,7 +693,7 @@ def find_temporary_dirs(
                     path=path,
                     size_bytes=size,
                     category="temporary",
-                    description=f"user-owned directory in {root}",
+                    description=f"user-owned item in {root}",
                     tier=Tier.INSPECT,
                     recovery="No automatic recovery; inspect before deleting",
                     evidence=[

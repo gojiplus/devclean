@@ -100,13 +100,10 @@ def assert_safe_to_delete(
         if resolved == protected:
             raise UnsafePathError(f"Cannot delete protected path: {resolved}")
 
-    default_protected = set(protected_paths())
     for raw_path in extra_protected or []:
         try:
             protected = Path(raw_path).expanduser().resolve()
         except (OSError, RuntimeError, ValueError):
-            continue
-        if protected in default_protected:
             continue
         if resolved.is_relative_to(protected) or protected.is_relative_to(resolved):
             raise UnsafePathError(

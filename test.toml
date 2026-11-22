@@ -11,4 +11,4 @@ timeout_seconds = 120
 max_depth = 8
 
 [safety]
-protected_paths = ["~", "~/Documents", "~/Desktop", "~/Downloads", "~/Pictures", "~/Music", "~/Movies", "/", "/System", "/Applications"]
+protected_paths = []

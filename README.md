@@ -13,6 +13,10 @@ sorts every candidate by how much evidence actually backs deleting it.
 
 ## Install
 
+Download the wheel from [GitHub Releases](https://github.com/gojiplus/devclean/releases/latest)
+and run `uv tool install ./devclean-*.whl` from the download directory.
+To install the current development version, use Git.
+
 ```bash
 uv tool install git+https://github.com/gojiplus/devclean.git
 ```
@@ -32,13 +36,41 @@ devclean clean --tier auto --dry-run
 devclean clean --tier auto
 ```
 
-`scan --json` emits the same data for scripting. Cleanup reports the measured
-change in free space on the home filesystem separately from scanned candidate
-sizes: hard links, snapshots, and concurrent disk activity can make them differ.
+`scan --json` emits the same data for scripting. The scan reports allocated disk space. A loose
+archive and its extracted copy each occupy space. A directory and the files
+inside it count once. Display-only groups are excluded from the bulk cleanup
+estimate. Hard links, shared APFS blocks, snapshots, and concurrent writes can
+make the observed change in free space smaller or larger than the estimate.
+Single-path cleanup measures the target filesystem. The batch summary observes
+the home filesystem.
+
+
+For scheduled cleanup of inactive projects, run from this checkout with a
+Python interpreter outside the environments being cleaned:
+
+```bash
+python3 -m devclean.inactive --root ~/Documents/GitHub --days 14
+python3 -m devclean.inactive --root ~/Documents/GitHub --days 14 --apply --prune-uv
+```
+
+The first command is a dry run. The second removes only direct-child `.venv`
+directories in Git projects with both `pyproject.toml` and `uv.lock`. Recent
+commits, checkouts, project files (including ignored data), environment changes,
+and running processes protect a project. Inspection errors also preserve it.
+Add `.devclean-keep` to opt a project out. Symlinked environments, tracked files,
+and unexpected top-level environment contents are preserved.
+
+Restore a removed environment with `uv sync --locked` in its project.
+`--prune-uv` runs the installed uv version’s cache prune operation, which can also
+remove centrally managed project environments. It skips while uv is running
+and respects the cache lock.
+Runs cannot overlap; rotating logs live in `~/.local/state/devclean/inactive.log`.
+Schedule this command with cron using absolute paths and the checkout as its
+working directory. The scheduled interpreter does not need devclean's `.venv`.
 
 Each scan section can be switched off per run: `--no-venvs`, `--no-node`,
 `--no-project`, `--no-system`, `--no-temp`. `--min-size N` raises the size
-floor for caches, system artifacts, and temporary directories.
+floor for caches, system artifacts, and temporary files and directories.
 
 ## Tiers
 
@@ -47,30 +79,31 @@ brings it back.
 
 | Tier | Evidence | Bulk-deletable |
 |---|---|---|
-| `auto` | The owning tool documents a purge command (`uv cache clean`, `npm cache clean`) | yes |
-| `verified` | A marker file proves it is what its name says — `pyvenv.cfg`, `package.json` | yes |
+| `auto` | An available owner command can target the selected cache | yes |
+| `verified` | A dependency directory has supporting recovery evidence | yes |
 | `probe` | Name matched a known category; contents passed a shape check | no |
 | `inspect` | A probe objected, and says why | no |
 
-`devclean clean --tier` acts only on `auto` and `verified`. Anything else has to
-be named explicitly, so a directory whose contents were never understood cannot
-be swept up by a batch command.
+`devclean clean --tier` acts only on `auto` and `verified`. For uv, pip, and npm, the
+preview shows the command and cache path that will be passed to the owning tool.
+If the tool fails, the cleanup reports the failure. Broader cache operations
+such as Homebrew cleanup require a separate decision about the tool's scope.
+Display-only entries summarize multiple paths and cannot be deleted as a group.
 
 ## What the probes catch
 
-A real example. This `dist/` sits next to a `pyproject.toml` and is gitignored,
-so nothing in git holds a copy:
+A real example. This `dist/` sits next to a `pyproject.toml` and is gitignored. The probe reported the following:
 
 ```
 $ devclean plan
-inspect — 3.1 GB (needs your decision)
-     3.1 GB  ~/Documents/GitHub/pai/dist
+inspect — 3.1 GiB (needs your decision)
+     3.1 GiB  ~/Documents/GitHub/pai/dist
              back via: Rebuilt by `python -m build`
              concern: contains a subdirectory (_stage/) — dist/ should be flat
              concern: DATAVERSE_UPLOAD.md is not a wheel or sdist
              concern: pai_2022-2023_html.tar.gz is a tarball whose name carries
                       no release version — it may be data rather than a build artifact
-             concern: gitignored — no copy in version control
+             concern: gitignored — verify a retained copy before deleting
 ```
 
 Those archives were a dataset staged for publication. Every structural signal
@@ -110,11 +143,12 @@ in `inspect`. A stale version may be intentional, and finding it does not grant
 permission to delete it.
 
 The scan also checks direct children of `/private/tmp`, `/var/tmp`, and the
-current user's macOS temporary directory. Only directories owned by the current
-user are reported, and these parents always stay in `inspect`: being in
-temporary storage is not proof that a directory is unused or reproducible.
+current user's macOS temporary directory. Owned regular files and directories
+are reported for inspection. An old
+timestamp can come from the original dataset, even in a new scratch folder.
 Verified virtualenvs and `node_modules` nested inside those parents are listed
-separately as bulk-deletable when a manifest proves how to restore them.
+separately. Before bulk removal, the environment checks run again. An unrelated
+lockfile or an unexpected top-level virtualenv entry triggers individual review.
 Overlapping parent and child candidates are counted only once in the scan total.
 
 The scan also reports Codex and Claude storage by purpose: conversations and
@@ -175,7 +209,10 @@ active settings.
 One guard, in `devclean/safety.py`, used by every deletion path. It refuses your
 home directory, its top-level folders, system roots, temporary roots, anything
 directly inside a system root, and any parent of your home directory.
-Configured `protected_paths` are honored everywhere. Outside your home,
+Each configured `protected_paths` entry protects its entire tree. Older starter
+configs listed `/` and `~`, which now protect everything below those roots.
+Set `protected_paths = []` to use the built-in guards alone, or list the
+specific folders you want to keep. Outside your home,
 deletion is limited to children of the recognized temporary roots.
 
 System artifact detection is inventory only. The bulk cleanup command cannot

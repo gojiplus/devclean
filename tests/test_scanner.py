@@ -41,10 +41,10 @@ class TestCandidate:
     """Tests for the Candidate dataclass."""
 
     def test_size_human_mb(self):
-        assert make_candidate(size_bytes=200 * 1024 * 1024).size_human == "200 MB"
+        assert make_candidate(size_bytes=200 * 1024 * 1024).size_human == "200 MiB"
 
     def test_size_human_gb(self):
-        assert make_candidate(size_bytes=2 * 1024**3).size_human == "2.0 GB"
+        assert make_candidate(size_bytes=2 * 1024**3).size_human == "2.0 GiB"
 
     def test_auto_is_bulk_deletable(self):
         assert make_candidate(tier=Tier.AUTO).bulk_deletable is True
@@ -447,23 +447,26 @@ class TestScanAll:
 
 
 class TestCheckCommandExists:
-    @patch("devclean.scanner.subprocess.run")
-    def test_exists(self, mock_run):
-        mock_run.return_value = MagicMock(returncode=0)
-        assert check_command_exists("python") is True
+    @pytest.fixture
+    def tool(self, tmp_path, monkeypatch):
+        tool = tmp_path / "tool"
+        tool.touch(mode=0o755)
+        monkeypatch.setenv("PATH", str(tmp_path))
+        return tool
 
-    @patch("devclean.scanner.subprocess.run")
-    def test_missing(self, mock_run):
-        mock_run.return_value = MagicMock(returncode=1)
-        assert check_command_exists("nonexistent-command") is False
+    def test_exists(self, tool):
+        assert check_command_exists(tool.name)
 
-    @patch("devclean.scanner.subprocess.run")
-    def test_error_is_not_fatal(self, mock_run):
-        mock_run.side_effect = OSError("boom")
-        assert check_command_exists("python") is False
+    def test_missing(self, tool):
+        assert not check_command_exists("missing")
 
-    def test_strips_version_argument(self):
-        assert isinstance(check_command_exists("python --version"), bool)
+    def test_error_is_not_fatal(self, tool, monkeypatch):
+        monkeypatch.setenv("PATH", str(tool))  # An invalid search directory.
+        assert not check_command_exists(tool.name)
+        assert not check_command_exists("")
+
+    def test_strips_version_argument(self, tool):
+        assert check_command_exists(f"{tool.name} --version")
 
 
 class TestScanKnownCruft:
@@ -608,4 +611,44 @@ class TestFindTemporaryDirs:
         candidate_dir.mkdir()
 
         assert find_temporary_dirs(1, [tmp_path], candidate_dir.stat().st_uid) == []
-        mock_sizes.assert_called_once_with([])
+        mock_sizes.assert_not_called()
+
+
+def test_scratch_archive_is_measured_and_requires_review(tmp_path):
+    archive = tmp_path / "source.zip"
+    archive.write_bytes(b"d" * 12000)
+    (tmp_path / "alias").symlink_to(archive)
+    rows = find_temporary_dirs(0, [tmp_path])
+    assert [(c.path, c.tier) for c in rows] == [(archive, Tier.INSPECT)]
+    assert rows[0].size_bytes >= 12000
+
+
+def test_dependency_evidence_must_match_environment(tmp_path):
+    env = tmp_path / ".venv"
+    env.mkdir()
+    (env / "pyvenv.cfg").touch()
+    inv = ProjectInventory(virtualenvs=[env])
+
+    def candidate():
+        return find_venvs(tmp_path, 0, inventory=inv)[0]
+
+    (tmp_path / "yarn.lock").touch()
+    assert candidate().tier == Tier.INSPECT
+    (tmp_path / "requirements.txt").touch()
+    assert candidate().tier == Tier.VERIFIED
+    (env / "observations.csv").touch()
+    assert candidate().tier == Tier.INSPECT
+
+
+def test_space_estimates_use_distinct_actionable_paths():
+    rows = [
+        make_candidate(path=Path("/example"), size_bytes=10),
+        make_candidate(path=Path("/example/a"), size_bytes=12),
+        make_candidate(path=Path("/example/b"), size_bytes=14),
+        make_candidate(path=Path("/example/b"), size_bytes=14),
+        make_candidate(path=Path("__pycache__"), size_bytes=8),
+    ]
+    result = ScanResult(candidates=rows)
+    assert result.total_bytes == 34
+    assert result.reclaimable_bytes == 26
+    assert not rows[-1].bulk_deletable

@@ -12,6 +12,7 @@ import pytest
 
 from devclean.exceptions import PathNotFoundError, UnsafePathError
 from devclean.safety import assert_safe_to_delete, is_safe_to_delete, protected_paths
+from devclean.settings import create_sample_config, load_config
 
 
 class TestProtectedPaths:
@@ -152,3 +153,17 @@ def test_configured_protection_covers_nested_contents(
     target, protected = (parent, child) if delete_parent else (child, parent)
     with pytest.raises(UnsafePathError, match="configured protected"):
         assert_safe_to_delete(target, [str(protected)])
+
+
+def test_explicit_documents_protection_also_covers_descendants(tmp_path, monkeypatch):
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    documents = tmp_path / "Documents"
+    venv = documents / "project" / ".venv"
+    venv.mkdir(parents=True)
+    config_file = tmp_path / ".devclean.toml"
+    create_sample_config(config_file)
+    assert_safe_to_delete(venv, load_config(config_file).safety.protected_paths)
+
+    config_file.write_text(f'[safety]\nprotected_paths = ["{documents}"]\n')
+    with pytest.raises(UnsafePathError, match="configured protected"):
+        assert_safe_to_delete(venv, load_config(config_file).safety.protected_paths)

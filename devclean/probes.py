@@ -11,8 +11,10 @@ means the caller should downgrade the candidate to INSPECT.
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 # PEP 440: release segment of digits and dots, optional pre/post/dev/local parts.
@@ -29,17 +31,30 @@ _VERSION_RE = re.compile(
 _SDIST_SUFFIX = ".tar.gz"
 _WHEEL_SUFFIX = ".whl"
 
-MANIFESTS = (
-    "uv.lock",
-    "poetry.lock",
-    "requirements.txt",
-    "pyproject.toml",
-    "setup.py",
-    "environment.yml",
-    "package-lock.json",
-    "yarn.lock",
-    "pnpm-lock.yaml",
+PYTHON_RESTORE_COMMANDS = {
+    "uv.lock": "uv sync --locked",
+    "poetry.lock": "poetry install",
+    "requirements.txt": "python -m pip install -r requirements.txt",
+    "pyproject.toml": "Install the project and its declared Python dependencies",
+    "setup.py": "python -m pip install .",
+    "environment.yml": "conda env create -f environment.yml",
+}
+
+UV_MACOS_ENTRIES = frozenset(
+    {
+        "pyvenv.cfg",
+        "bin",
+        "include",
+        "lib",
+        "lib64",
+        "share",
+        "etc",
+        ".gitignore",
+        ".lock",
+        "CACHEDIR.TAG",
+    }
 )
+VENV_ENTRIES = UV_MACOS_ENTRIES | {"man", "Scripts", "Lib", "Include"}
 
 
 def _looks_like_version(segment: str) -> bool:
@@ -116,16 +131,65 @@ def probe_dist_dir(path: Path) -> list[str]:
     return concerns
 
 
-def probe_venv(path: Path) -> list[str]:
+def probe_venv(
+    path: Path, *, allowed_entries: frozenset[str] = VENV_ENTRIES
+) -> list[str]:
     """Verify a directory is a real virtualenv and not a package that shares the name.
 
     ``pyvenv.cfg`` is the marker. Without this check a path such as
     ``node_modules/@next/env`` matches the ``env`` name pattern and would be
     destroyed.
     """
+    if path.is_symlink():
+        return ["environment path is a symbolic link"]
     if not (path / "pyvenv.cfg").is_file():
         return ["no pyvenv.cfg — not a virtualenv"]
-    return []
+    try:
+        unexpected = sorted(
+            p.name for p in path.iterdir() if p.name not in allowed_entries
+        )
+    except OSError as exc:
+        return [f"could not inspect environment: {exc}"]
+    return [f"unexpected environment entry: {name}" for name in unexpected]
+
+
+def inspect_environment(
+    path: Path, *, allowed_entries: frozenset[str] = VENV_ENTRIES
+) -> tuple[str, list[str]]:
+    """Return the Python restore instruction and any obstacles to cleanup."""
+    concerns = probe_venv(path, allowed_entries=allowed_entries)
+    if any((directory / ".git").exists() for directory in path.parents):
+        try:
+            tracked = subprocess.run(
+                [
+                    "git",
+                    "--literal-pathspecs",
+                    "-C",
+                    str(path.parent),
+                    "ls-files",
+                    "--",
+                    path.name,
+                ],
+                capture_output=True,
+                timeout=30,
+                check=True,
+            )
+        except (OSError, subprocess.SubprocessError):
+            concerns.append("could not verify whether Git tracks environment files")
+        else:
+            if tracked.stdout:
+                concerns.append("environment contains Git-tracked files")
+    for active in (sys.prefix, os.environ.get("VIRTUAL_ENV")):
+        if active and path.resolve() == Path(active).resolve():
+            concerns.append("Python environment is active")
+            break
+    manifest = next(
+        (m for m in PYTHON_RESTORE_COMMANDS if (path.parent / m).is_file()), None
+    )
+    if manifest is None:
+        concerns.append(f"No Python dependency manifest in {path.parent}")
+        return "Identify the dependencies before removal", concerns
+    return PYTHON_RESTORE_COMMANDS[manifest], concerns
 
 
 def probe_node_modules(path: Path) -> list[str]:
@@ -137,7 +201,7 @@ def probe_node_modules(path: Path) -> list[str]:
 
 
 def is_gitignored(path: Path) -> bool:
-    """Report whether git ignores this path, i.e. no copy exists in history.
+    """Report whether Git currently ignores this path.
 
     Returns False when the path is not in a git repository or git is
     unavailable, since in that case ignoring tells us nothing.
@@ -156,7 +220,12 @@ def is_gitignored(path: Path) -> bool:
 
 def find_manifest(project_dir: Path) -> str | None:
     """Return the manifest that could rebuild this project's dependencies."""
-    for manifest in MANIFESTS:
+    for manifest in (
+        *PYTHON_RESTORE_COMMANDS,
+        "package-lock.json",
+        "yarn.lock",
+        "pnpm-lock.yaml",
+    ):
         if (project_dir / manifest).is_file():
             return manifest
     return None
@@ -167,17 +236,14 @@ def recovery_evidence(
 ) -> tuple[list[str], list[str]]:
     """Collect cross-cutting evidence and concerns about recoverability.
 
-    Two facts matter regardless of category: whether git holds a copy, and
-    whether a manifest exists to rebuild from. Together they decide the cost of
-    being wrong.
+    Report a current ignore rule and any project manifest found.
+    Neither check establishes that an artifact is backed up.
     """
     evidence: list[str] = []
     concerns: list[str] = []
 
     if is_gitignored(path):
-        concerns.append("gitignored — no copy in version control")
-    else:
-        evidence.append("tracked by git or outside a repo")
+        concerns.append("gitignored — verify a retained copy before deleting")
 
     if project_dir is not None:
         manifest = find_manifest(project_dir)
