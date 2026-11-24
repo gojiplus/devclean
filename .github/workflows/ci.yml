@@ -23,4 +23,4 @@ jobs:
       coverage-floor: 65
       # macOS-only tool: scanners shell out to BSD du/find and probe macOS paths.
       os: '["macos-latest"]'
-      python-versions: '["3.11", "3.12", "3.13", "3.14"]'
+      python-versions: '["3.13", "3.14"]'
