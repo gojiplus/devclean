@@ -334,7 +334,7 @@ test = [
 
 [package.metadata]
 requires-dist = [
-    { name = "rich", specifier = ">=13.0.0" },
+    { name = "rich", specifier = ">=13.8.0" },
     { name = "tomlkit", specifier = ">=0.15.2" },
     { name = "typer", specifier = ">=0.29.1" },
 ]

@@ -19,6 +19,7 @@ jobs:
   ci:
     uses: gojiplus/py-canon/.github/workflows/reusable-ci.yml@v1
     with:
+      run-lower-bounds: true
       wheel-import: devclean
       coverage-floor: 65
       # macOS-only tool: scanners shell out to BSD du/find and probe macOS paths.
