@@ -24,7 +24,7 @@ classifiers = [
 ]
 dependencies = [
     "typer>=0.29.1",
-    "rich>=13.0.0",
+    "rich>=13.8.0",
     "tomlkit>=0.15.2",
 ]
 
